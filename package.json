@@ -1,5 +1,6 @@
 {
   "name": "fairyscans-extension",
+  "repositoryName": "nad's fairyscans",
   "version": "1.0.0",
   "description": "Extension Paperback pour FairyScans",
   "main": "lib/index.js",
