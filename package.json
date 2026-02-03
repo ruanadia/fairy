@@ -1,6 +1,8 @@
 {
   "name": "fairyscans-extension",
   "version": "1.0.0",
+  "repositoryName": "Mes Extensions FairyScans",
+  "homepage": "https://ruanadia.github.io/fairy/bundles",
   "description": "Extension Paperback pour FairyScans",
   "main": "lib/index.js",
   "scripts": {
