@@ -178,4 +178,55 @@ export class FairyScans extends Source {
             results: tiles
         })
     }
+
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        // 1. On crée une section "Derniers Ajouts"
+        const section = App.createHomeSection({
+            id: 'latest',
+            title: 'Derniers Ajouts',
+            containsMoreItems: false, // On met false pour l'instant pour faire simple
+            type: 'singleRowNormal'
+        })
+
+        // 2. On récupère la page d'accueil du site
+        const request = App.createRequest({
+            url: DOMAIN,
+            method: 'GET'
+        })
+
+        const response = await this.requestManager.schedule(request, 1)
+        const $ = cheerio.load(response.data ?? '')
+        
+        const mangaList: any[] = []
+
+        // 3. On cherche les mangas sur la page d'accueil
+        // (Sélecteur standard pour les sites Madara comme FairyScans : .page-item-detail)
+        const items = $('.page-item-detail')
+
+        for (const item of items) {
+            const titleElement = $(item).find('.post-title h3 a')
+            const title = titleElement.text().trim()
+            
+            // On gère l'image (data-src pour le lazy loading, ou src)
+            const imgTag = $(item).find('img')
+            const image = imgTag.attr('data-src') ?? imgTag.attr('src') ?? ''
+            
+            // On récupère l'ID
+            const href = titleElement.attr('href')
+            const id = href?.split('/').filter(x => x).pop()
+
+            if (id && title) {
+                mangaList.push(App.createPartialSourceManga({
+                    mangaId: id,
+                    title: title,
+                    image: image,
+                    subtitle: undefined
+                }))
+            }
+        }
+
+        // 4. On remplit la section et on l'envoie à l'application
+        section.items = mangaList
+        sectionCallback(section)
+    }
 }

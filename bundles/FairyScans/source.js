@@ -15049,6 +15049,41 @@ var _Sources = (() => {
         results: tiles
       });
     }
+    async getHomePageSections(sectionCallback) {
+      const section = App.createHomeSection({
+        id: "latest",
+        title: "Derniers Ajouts",
+        containsMoreItems: false,
+        // On met false pour l'instant pour faire simple
+        type: "singleRowNormal"
+      });
+      const request = App.createRequest({
+        url: DOMAIN,
+        method: "GET"
+      });
+      const response = await this.requestManager.schedule(request, 1);
+      const $2 = load(response.data ?? "");
+      const mangaList = [];
+      const items = $2(".page-item-detail");
+      for (const item of items) {
+        const titleElement = $2(item).find(".post-title h3 a");
+        const title = titleElement.text().trim();
+        const imgTag = $2(item).find("img");
+        const image = imgTag.attr("data-src") ?? imgTag.attr("src") ?? "";
+        const href = titleElement.attr("href");
+        const id = href?.split("/").filter((x) => x).pop();
+        if (id && title) {
+          mangaList.push(App.createPartialSourceManga({
+            mangaId: id,
+            title,
+            image,
+            subtitle: void 0
+          }));
+        }
+      }
+      section.items = mangaList;
+      sectionCallback(section);
+    }
   };
   return __toCommonJS(FairyScans_exports);
 })();
