@@ -1,0 +1,22 @@
+{
+  "name": "fairyscans-extension",
+  "version": "1.0.0",
+  "description": "Extension Paperback pour FairyScans",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "bundle": "npx paperback bundle"
+  },
+  "dependencies": {
+    "@paperback/types": "^0.8.0-alpha.47",
+    "@paperback/toolchain": "^0.8.0-alpha.47",
+    "cheerio": "1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "typescript": "^4.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruanadia/fairy.git"
+  }
+}
