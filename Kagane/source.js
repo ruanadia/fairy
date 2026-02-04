@@ -736,12 +736,12 @@ var _Sources = (() => {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
   var KaganeInfo = {
-    version: "1.0.7",
+    version: "1.0.9",
     name: "Kagane",
     icon: "icon.png",
     author: "Toi",
     authorWebsite: "https://github.com/ruanadia",
-    description: "Extension API pour Kagane.org",
+    description: "Extension pour Kagane.org",
     contentRating: import_types.ContentRating.MATURE,
     websiteBaseURL: DOMAIN
   };
@@ -753,41 +753,55 @@ var _Sources = (() => {
         requestTimeout: 15e3
       });
     }
-    // --- ACCUEIL (Comme ComixTo : API directe) ---
+    // --- CORRECTION MAJEURE ICI ---
+    // On s'assure que la fonction est bien déclarée comme async et retourne Promise<void>
+    // C'est exactement le format standard
     async getHomePageSections(sectionCallback) {
-      const section = App.createHomeSection({ id: "latest", title: "Latest Updates", containsMoreItems: true, type: "singleRowNormal" });
+      const section = App.createHomeSection({
+        id: "latest",
+        title: "Latest Updates",
+        containsMoreItems: true,
+        type: "singleRowNormal"
+      });
       sectionCallback(section);
       const request = App.createRequest({
         url: `${API_URL}/series?page=1&take=20&sort=last_modified&order=desc`,
         method: "GET",
         headers: COMMON_HEADERS
       });
-      const response = await this.requestManager.schedule(request, 1);
-      let items = [];
       try {
+        const response = await this.requestManager.schedule(request, 1);
+        let items = [];
         const json = JSON.parse(response.data ?? "{}");
-        items = Array.isArray(json) ? json : json.data || json.series || [];
-      } catch (e) {
-        console.log("Erreur API Home");
-      }
-      const mangaList = [];
-      for (const item of items) {
-        let image = item.thumbnail || item.cover || "";
-        if (image && !image.startsWith("http")) {
-          image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+        if (Array.isArray(json)) {
+          items = json;
+        } else if (json.data && Array.isArray(json.data)) {
+          items = json.data;
+        } else if (json.series && Array.isArray(json.series)) {
+          items = json.series;
         }
-        mangaList.push(App.createPartialSourceManga({
-          mangaId: String(item.id),
-          // ID de l'API
-          title: item.title || item.name,
-          image,
-          subtitle: void 0
-        }));
+        const mangaList = [];
+        for (const item of items) {
+          let image = item.thumbnail || item.cover || "";
+          if (image && !image.startsWith("http")) {
+            image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+          }
+          if (item.id) {
+            mangaList.push(App.createPartialSourceManga({
+              mangaId: String(item.id),
+              title: item.title || item.name || "Unknown",
+              image,
+              subtitle: void 0
+            }));
+          }
+        }
+        section.items = mangaList;
+        sectionCallback(section);
+      } catch (e) {
+        console.log(`Erreur Home: ${e}`);
+        sectionCallback(section);
       }
-      section.items = mangaList;
-      sectionCallback(section);
     }
-    // --- DÉTAILS DU MANGA ---
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
         url: `${API_URL}/series/${mangaId}`,
@@ -804,31 +818,29 @@ var _Sources = (() => {
       return App.createSourceManga({
         id: mangaId,
         mangaInfo: App.createMangaInfo({
-          titles: [data.title || data.name || "Sans titre"],
+          titles: [data.title || data.name || "Titre Inconnu"],
           image,
           status: data.status === "ONGOING" ? "Ongoing" : "Completed",
-          desc: data.summary || data.description || "Pas de description",
+          desc: data.summary || data.description || "",
           artist: data.authors ? data.authors.join(", ") : "",
           tags: data.metadata?.genres || []
         })
       });
     }
-    // --- CHAPITRES ---
     async getChapters(mangaId) {
       const request = App.createRequest({
         url: `${API_URL}/series/${mangaId}`,
-        // Souvent inclus dans les détails
         method: "GET",
         headers: COMMON_HEADERS
       });
       const response = await this.requestManager.schedule(request, 1);
       const json = JSON.parse(response.data ?? "{}");
       const chapters = [];
-      const list = json.books || json.chapters || json.data?.books || [];
-      for (const item of list) {
+      const rawChapters = json.books || json.chapters || json.data?.books || [];
+      for (const item of rawChapters) {
         chapters.push(App.createChapter({
           id: String(item.id),
-          chapNum: Number(item.number || item.sequenceNumber || item.chapterNumber || 0),
+          chapNum: Number(item.chapterNumber || item.number || item.sequenceNumber || 0),
           name: item.title || item.name || `Chapter ${item.number}`,
           langCode: "en",
           time: item.createdAt ? new Date(item.createdAt) : /* @__PURE__ */ new Date()
@@ -836,7 +848,6 @@ var _Sources = (() => {
       }
       return chapters;
     }
-    // --- IMAGES DU CHAPITRE ---
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
         url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
@@ -844,19 +855,24 @@ var _Sources = (() => {
         headers: COMMON_HEADERS
       });
       const response = await this.requestManager.schedule(request, 1);
-      const json = JSON.parse(response.data ?? "[]");
+      const json = JSON.parse(response.data ?? "{}");
       let pages = [];
-      const list = Array.isArray(json) ? json : json.images || json.data || [];
-      pages = list.map((img) => {
-        return typeof img === "string" ? img : img.url;
-      });
+      if (Array.isArray(json)) {
+        pages = json;
+      } else if (Array.isArray(json.images)) {
+        pages = json.images;
+      } else if (Array.isArray(json.pages)) {
+        pages = json.pages;
+      } else if (Array.isArray(json.data)) {
+        pages = json.data;
+      }
+      pages = pages.map((img) => typeof img === "string" ? img : img.url);
       return App.createChapterDetails({
         id: chapterId,
         mangaId,
         pages
       });
     }
-    // --- RECHERCHE ---
     async getSearchResults(query, metadata) {
       const request = App.createRequest({
         url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? "")}&take=20`,
