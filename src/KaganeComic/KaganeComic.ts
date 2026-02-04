@@ -14,186 +14,110 @@ import {
 import * as cheerio from 'cheerio'
 
 const DOMAIN = 'https://kagane.org'
+const API_URL = 'https://api.kagane.org/api/v1'
 
-// On définit les headers pour imiter un vrai navigateur
+// ✅ CORRECTION : On définit les headers ici pour les utiliser partout
 const COMMON_HEADERS = {
     'Referer': DOMAIN,
-    'Origin': DOMAIN,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Origin': DOMAIN
 }
 
-export const KaganeComicInfo: SourceInfo = {
-    version: '1.0.2', // J'ai monté la version pour forcer la mise à jour
-    name: 'KaganeComic',
+export const KaganeInfo: SourceInfo = {
+    version: '1.0.4',
+    name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
     authorWebsite: 'https://github.com/ruanadia',
-    description: 'Extension pour Kagane.org (Next.js)',
+    description: 'Extension pour Kagane.org',
     contentRating: ContentRating.MATURE,
     websiteBaseURL: DOMAIN
 }
 
-export class KaganeComic extends Source {
+export class Kagane extends Source {
+    // ✅ CORRECTION : On supprime le bloc "interceptor" qui causait l'erreur
     requestManager = App.createRequestManager({
         requestsPerSecond: 3,
         requestTimeout: 15000,
     })
 
-    // --- NOUVELLE FONCTION DE PARSING PLUS ROBUSTE ---
-    parseNextJsData(html: string): any[] {
-        const $ = cheerio.load(html)
-        
-        // Méthode 1 : Chercher les données dans les balises script "self.__next_f.push"
-        // C'est là que Kagane stocke ses listes
-        let foundData: any[] = []
-
-        $('script').each((index, element) => {
-            const content = $(element).html()
-            if (!content) return
-
-            // On cherche des blocs de données JSON qui ressemblent à des listes de mangas
-            // On cherche des motifs comme: "id":"...","name":"...","thumbnail":"..."
-            if (content.includes('self.__next_f.push')) {
-                try {
-                    // On nettoie le js pour ne garder que les strings JSON potentielles
-                    // C'est du "parsing sauvage" mais efficace pour ce type de site
-                    const matches = content.match(/{"id":".*?","name":".*?","summary":".*?"/g)
-                    
-                    if (matches) {
-                        // Si on trouve des correspondances, on essaie de reconstruire les objets
-                        // L'astuce est de voir que les données sont souvent sérialisées en chaîne
-                        const rawData = content; 
-                        
-                        // Cherchons la liste "data":[ ... ]
-                        const dataMatch = rawData.match(/"data":\[({.*?})\]/)
-                        if (dataMatch && dataMatch[1]) {
-                            // On tente de parser ce bout de JSON
-                            // Attention : c'est risqué, alors on va plutôt utiliser une regex pour extraire chaque item
-                            const itemRegex = /{"id":"(.*?)","name":"(.*?)","summary":".*?","thumbnail":"(.*?)"/g
-                            let match;
-                            // Note: Le regex exact dépend de la structure, essayons plus large
-                        }
-                    }
-                } catch (e) {
-                    // Ignorer les erreurs de parsing
-                }
-            }
-        })
-
-        // Méthode 2 (La plus simple) : Parser le HTML directement si Next.js a rendu le contenu
-        // Souvent, Next.js rend une partie du HTML statique pour le SEO
-        const mangaItems = $('a[href^="/series/"], a[href^="/comic/"]')
-        
-        mangaItems.each((i, el) => {
-            const href = $(el).attr('href')
-            const id = href?.split('/').pop()
-            const title = $(el).find('h3, h4, .title, span.font-bold').first().text().trim() || $(el).attr('title')
-            const img = $(el).find('img').attr('src') || $(el).find('img').attr('srcset')?.split(' ')[0]
-
-            if (id && title) {
-                // On évite les doublons
-                if (!foundData.find(x => x.id === id)) {
-                    foundData.push({
-                        id: id,
-                        name: title,
-                        thumbnail: img
-                    })
-                }
-            }
-        })
-
-        return foundData
-    }
-
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         const request = App.createRequest({
-            url: `${DOMAIN}/series/${mangaId}`,
+            url: `${API_URL}/series/${mangaId}`,
             method: 'GET',
-            headers: COMMON_HEADERS
+            headers: COMMON_HEADERS // ✅ On ajoute les headers manuellement
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        const html = response.data ?? ''
-        const $ = cheerio.load(html)
+        const json = JSON.parse(response.data ?? '{}')
+        const data = json.data || json
 
-        // Extraction directe du HTML (plus fiable que le JSON caché pour les détails)
-        const title = $('h1').text().trim() || 'Titre Inconnu'
-        // Cherche l'image principale (souvent la plus grande ou celle dans la section "info")
-        let image = $('img[alt="' + title + '"]').attr('src') || $('img').first().attr('src') || ''
-        if (image.startsWith('/')) image = DOMAIN + image
-
-        const desc = $('p.description, .summary').text().trim()
-        
-        // Statut
-        let status = 'Ongoing'
-        if ($('*:contains("Completed"), *:contains("Ended")').length > 0) status = 'Completed'
+        // Gestion de l'image
+        let image = data.thumbnail || ''
+        if (image && !image.startsWith('http')) {
+            image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
+        }
 
         return App.createSourceManga({
             id: mangaId,
             mangaInfo: App.createMangaInfo({
-                titles: [title],
+                titles: [data.title || data.name || 'Titre Inconnu'],
                 image: image,
-                status: status,
-                desc: desc,
+                status: data.status === 'ONGOING' ? 'Ongoing' : 'Completed',
+                desc: data.summary || data.description || '',
+                artist: data.authors ? data.authors.join(', ') : '',
+                tags: data.metadata?.genres || []
             })
         })
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
-        // Pour les chapitres, Kagane utilise souvent une API distincte
-        // Essayons l'API directe que tu avais trouvée, adaptée
         const request = App.createRequest({
-            url: `${DOMAIN}/api/series/${mangaId}/chapters?page=1&perPage=1000`, // On tente de tout récupérer
+            url: `${API_URL}/series/${mangaId}`,
             method: 'GET',
-            headers: COMMON_HEADERS
+            headers: COMMON_HEADERS // ✅ Headers ajoutés
         })
 
         const response = await this.requestManager.schedule(request, 1)
+        const json = JSON.parse(response.data ?? '{}')
         const chapters: Chapter[] = []
-        
-        try {
-            const json = JSON.parse(response.data ?? '{}')
-            // La liste est souvent dans "data" ou "chapters"
-            const list = Array.isArray(json) ? json : (json.data || json.chapters || [])
 
-            for (const item of list) {
-                chapters.push(App.createChapter({
-                    id: String(item.id), // ID du chapitre
-                    chapNum: Number(item.number || item.sequenceNumber || 0),
-                    name: item.title || `Chapter ${item.number}`,
-                    langCode: 'en',
-                    time: item.createdAt ? new Date(item.createdAt) : new Date()
-                }))
-            }
-        } catch (e) {
-            console.log(`Erreur API chapitres, tentative HTML...`)
-            // Fallback : Si l'API échoue, on regarde le HTML de la page série
-            // Mais pour une SPA, c'est rare que les chapitres soient dans le HTML initial
+        const rawChapters = json.books || json.chapters || json.data?.books || []
+
+        for (const item of rawChapters) {
+            chapters.push(App.createChapter({
+                id: item.id,
+                chapNum: Number(item.chapterNumber || item.sequenceNumber || item.number || 0),
+                name: item.title || item.name || `Chapter ${item.chapterNumber}`,
+                langCode: 'en',
+                time: item.createdAt ? new Date(item.createdAt) : new Date()
+            }))
         }
         return chapters
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
         const request = App.createRequest({
-            url: `${DOMAIN}/api/chapters/${chapterId}/pages`, // URL probable pour les pages
+            url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
             method: 'GET',
-            headers: COMMON_HEADERS
+            headers: COMMON_HEADERS // ✅ Headers ajoutés
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        let pages: string[] = []
+        const json = JSON.parse(response.data ?? '{}')
 
-        try {
-            const json = JSON.parse(response.data ?? '{}')
-            const list = Array.isArray(json) ? json : (json.pages || json.data || [])
-            
-            pages = list.map((img: any) => {
-                const url = typeof img === 'string' ? img : (img.url || img.src)
-                return url.startsWith('http') ? url : DOMAIN + url
-            })
-        } catch (e) {
-            throw new Error(`Erreur pages`)
+        let pages: string[] = []
+        
+        if (Array.isArray(json)) {
+            pages = json
+        } else if (Array.isArray(json.images)) {
+            pages = json.images
+        } else if (Array.isArray(json.pages)) {
+            pages = json.pages
+        } else if (Array.isArray(json.data)) {
+            pages = json.data
         }
+
+        pages = pages.map((img: any) => typeof img === 'string' ? img : img.url)
 
         return App.createChapterDetails({
             id: chapterId,
@@ -202,88 +126,71 @@ export class KaganeComic extends Source {
         })
     }
 
-    async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
-        // Recherche via l'API, c'est le plus sûr
-        const request = App.createRequest({
-            url: `${DOMAIN}/api/series/search?q=${encodeURIComponent(query.title ?? '')}`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const tiles: any[] = []
-        
-        try {
-            const json = JSON.parse(response.data ?? '{}')
-            const list = json.data || json.series || []
-
-            for (const item of list) {
-                let img = item.thumbnail || item.cover || ''
-                if (img && !img.startsWith('http')) img = DOMAIN + img
-
-                tiles.push(App.createPartialSourceManga({
-                    mangaId: String(item.id),
-                    title: item.title || item.name,
-                    image: img,
-                    subtitle: undefined
-                }))
-            }
-        } catch(e) {}
-
-        return App.createPagedResults({ results: tiles })
-    }
-
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
         const section = App.createHomeSection({ id: 'latest', title: 'Latest Updates', containsMoreItems: true, type: 'singleRowNormal' })
         sectionCallback(section)
 
-        // API : On appelle directement l'API de recherche triée par date
-        // C'est ce que fait le site quand il charge la page d'accueil
         const request = App.createRequest({
-            // Cette URL est souvent celle utilisée par le frontend pour peupler la liste
-            url: `${DOMAIN}/api/series/latest`, // Ou /api/series?sort=newest
+            url: `${API_URL}/series?sort=last_modified&order=desc&take=20`,
             method: 'GET',
-            headers: COMMON_HEADERS
+            headers: COMMON_HEADERS // ✅ Headers ajoutés
         })
 
-        // Si l'URL ci-dessus ne marche pas, on essaiera celle que tu as trouvée :
-        // url: `${DOMAIN}/search?sort=created_at,desc` 
-        // Mais en parsant le HTML retourné par cette page
-
         const response = await this.requestManager.schedule(request, 1)
-        const mangaList: any[] = []
         
-        // Essai de lecture JSON (si l'API répond du JSON)
+        const mangaList: any[] = []
+        let list: any[] = []
+        
         try {
             const json = JSON.parse(response.data ?? '{}')
-            const list = json.data || json.series || []
-            
-            for (const item of list) {
-                let img = item.thumbnail || item.cover || ''
-                if (img && !img.startsWith('http')) img = DOMAIN + img
-
-                mangaList.push(App.createPartialSourceManga({
-                    mangaId: String(item.id),
-                    title: item.title || item.name,
-                    image: img,
-                    subtitle: undefined
-                }))
-            }
+            list = json.data || json.series || []
         } catch (e) {
-            // Si ce n'est pas du JSON, c'est du HTML
-            // On utilise notre parseur de secours
-            const foundItems = this.parseNextJsData(response.data ?? '')
-            for (const item of foundItems) {
-                mangaList.push(App.createPartialSourceManga({
-                    mangaId: item.id,
-                    title: item.name,
-                    image: item.thumbnail,
-                    subtitle: undefined
-                }))
+            console.log("Erreur parsing home")
+        }
+
+        for (const item of list) {
+            let image = item.thumbnail || ''
+            if (image && !image.startsWith('http')) {
+                image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
             }
+
+            mangaList.push(App.createPartialSourceManga({
+                mangaId: item.id,
+                title: item.title || item.name,
+                image: image,
+                subtitle: undefined
+            }))
         }
 
         section.items = mangaList
         sectionCallback(section)
+    }
+
+    async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+        const request = App.createRequest({
+            url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? '')}`,
+            method: 'GET',
+            headers: COMMON_HEADERS // ✅ Headers ajoutés
+        })
+
+        const response = await this.requestManager.schedule(request, 1)
+        const json = JSON.parse(response.data ?? '{}')
+        const tiles: any[] = []
+
+        for (const item of (json.data || [])) {
+            let image = item.thumbnail || ''
+            if (image && !image.startsWith('http')) {
+                image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
+            }
+
+            tiles.push(App.createPartialSourceManga({
+                mangaId: item.id,
+                title: item.title || item.name,
+                image: image,
+                subtitle: undefined
+            }))
+        }
+
+        return App.createPagedResults({ results: tiles })
     }
 }
