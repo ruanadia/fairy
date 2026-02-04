@@ -11,10 +11,9 @@ import {
     Request,
     Response,
 } from '@paperback/types'
-import * as cheerio from 'cheerio'
 
-const DOMAIN = 'https://kagane.org'
 const API_URL = 'https://api.kagane.org/api/v1'
+const DOMAIN = 'https://kagane.org'
 
 const COMMON_HEADERS = {
     'Referer': DOMAIN,
@@ -23,7 +22,7 @@ const COMMON_HEADERS = {
 }
 
 export const KaganeInfo: SourceInfo = {
-    version: '1.0.6', // J'augmente la version pour forcer la mise à jour
+    version: '1.0.9',
     name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
@@ -39,113 +38,127 @@ export class Kagane extends Source {
         requestTimeout: 15000,
     })
 
-    // --- Couteau Suisse pour décoder les données du site ---
-    parseMangaListFromHTML(html: string): any[] {
-        const $ = cheerio.load(html)
-        const items: any[] = []
+    // --- CORRECTION MAJEURE ICI ---
+    // On s'assure que la fonction est bien déclarée comme async et retourne Promise<void>
+    // C'est exactement le format standard
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        
+        // 1. On crée la section VIDE d'abord (pour que l'UI réagisse vite)
+        const section = App.createHomeSection({ 
+            id: 'latest', 
+            title: 'Latest Updates', 
+            containsMoreItems: true, 
+            type: 'singleRowNormal' 
+        })
+        
+        // 2. On l'affiche tout de suite
+        sectionCallback(section)
 
-        // 1. On essaie de lire les liens visibles (Le plus fiable)
-        $('a[href^="/series/"]').each((i, el) => {
-            const href = $(el).attr('href')
-            const id = href?.split('/').pop()
-            
-            // On cherche le titre dans les balises enfants courantes
-            const title = $(el).find('h3, h4, span.font-bold, .title').first().text().trim() || $(el).attr('title')
-            
-            // On cherche l'image
-            let image = $(el).find('img').attr('src') || $(el).find('img').attr('srcset')?.split(' ')[0]
-            
-            // Nettoyage de l'image
-            if (image) {
-                if (image.startsWith('/_next')) image = DOMAIN + image
-                // Si l'image est encodée (url=...)
-                if (image.includes('url=')) {
-                    const match = image.match(/url=(.*?)&/)
-                    if (match) image = decodeURIComponent(match[1])
-                }
-            }
-
-            if (id && title) {
-                // On évite les doublons
-                if (!items.find(x => x.id === id)) {
-                    items.push({ id, title, image })
-                }
-            }
+        // 3. Ensuite on va chercher les données
+        const request = App.createRequest({
+            url: `${API_URL}/series?page=1&take=20&sort=last_modified&order=desc`,
+            method: 'GET',
+            headers: COMMON_HEADERS
         })
 
-        return items
+        try {
+            const response = await this.requestManager.schedule(request, 1)
+            let items: any[] = []
+            const json = JSON.parse(response.data ?? '{}')
+            
+            // Sécurité : on vérifie tous les formats possibles
+            if (Array.isArray(json)) {
+                items = json
+            } else if (json.data && Array.isArray(json.data)) {
+                items = json.data
+            } else if (json.series && Array.isArray(json.series)) {
+                items = json.series
+            }
+
+            const mangaList: any[] = []
+            for (const item of items) {
+                let image = item.thumbnail || item.cover || ''
+                if (image && !image.startsWith('http')) {
+                    image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
+                }
+
+                // On vérifie que l'ID existe bien avant d'ajouter
+                if (item.id) {
+                    mangaList.push(App.createPartialSourceManga({
+                        mangaId: String(item.id),
+                        title: item.title || item.name || 'Unknown',
+                        image: image,
+                        subtitle: undefined
+                    }))
+                }
+            }
+
+            // 4. On met à jour la section avec les items trouvés
+            section.items = mangaList
+            sectionCallback(section)
+
+        } catch (e) {
+            console.log(`Erreur Home: ${e}`)
+            // En cas d'erreur, on renvoie la section vide pour ne pas crasher
+            sectionCallback(section)
+        }
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
-        // On lit la page web de la série
         const request = App.createRequest({
-            url: `${DOMAIN}/series/${mangaId}`,
+            url: `${API_URL}/series/${mangaId}`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        const html = response.data ?? ''
-        const $ = cheerio.load(html)
+        const json = JSON.parse(response.data ?? '{}')
+        const data = json.data || json
 
-        // Extraction des infos
-        const title = $('h1').first().text().trim() || 'Titre Inconnu'
-        const desc = $('p.description, .summary, div[class*="description"]').text().trim()
-        
-        // Image : on cherche la plus pertinente
-        let image = $('img[alt*="cover"], img[alt="' + title + '"]').attr('src') || ''
-        if (image.startsWith('/')) image = DOMAIN + image
-
-        let status = 'Ongoing'
-        if (html.includes('"status":"COMPLETED"') || $('*:contains("Status: Completed")').length > 0) {
-            status = 'Completed'
+        let image = data.thumbnail || ''
+        if (image && !image.startsWith('http')) {
+            image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
         }
 
         return App.createSourceManga({
             id: mangaId,
             mangaInfo: App.createMangaInfo({
-                titles: [title],
+                titles: [data.title || data.name || 'Titre Inconnu'],
                 image: image,
-                status: status,
-                desc: desc,
+                status: data.status === 'ONGOING' ? 'Ongoing' : 'Completed',
+                desc: data.summary || data.description || '',
+                artist: data.authors ? data.authors.join(', ') : '',
+                tags: data.metadata?.genres || []
             })
         })
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
-        // On demande à l'API interne la liste des chapitres
-        // C'est souvent plus fiable que le HTML pour une longue liste
         const request = App.createRequest({
-            url: `${API_URL}/series/${mangaId}`, // L'API v1 renvoie souvent tout ici
+            url: `${API_URL}/series/${mangaId}`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
 
         const response = await this.requestManager.schedule(request, 1)
+        const json = JSON.parse(response.data ?? '{}')
         const chapters: Chapter[] = []
-        
-        try {
-            const json = JSON.parse(response.data ?? '{}')
-            // Les chapitres peuvent être dans 'books', 'chapters' ou 'data.books'
-            const list = json.books || json.chapters || json.data?.books || []
 
-            for (const item of list) {
-                chapters.push(App.createChapter({
-                    id: String(item.id),
-                    chapNum: Number(item.chapterNumber || item.number || item.sequenceNumber || 0),
-                    name: item.title || item.name || `Chapter ${item.number}`,
-                    langCode: 'en',
-                    time: item.createdAt ? new Date(item.createdAt) : new Date()
-                }))
-            }
-        } catch (e) {
-            console.log('Erreur parsing chapitres')
+        const rawChapters = json.books || json.chapters || json.data?.books || []
+
+        for (const item of rawChapters) {
+            chapters.push(App.createChapter({
+                id: String(item.id),
+                chapNum: Number(item.chapterNumber || item.number || item.sequenceNumber || 0),
+                name: item.title || item.name || `Chapter ${item.number}`,
+                langCode: 'en',
+                time: item.createdAt ? new Date(item.createdAt) : new Date()
+            }))
         }
         return chapters
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        // C'est l'URL secrète que tu as trouvée !
         const request = App.createRequest({
             url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
             method: 'GET',
@@ -153,20 +166,21 @@ export class Kagane extends Source {
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        let pages: string[] = []
+        const json = JSON.parse(response.data ?? '{}')
 
-        try {
-            // L'API renvoie une liste directe d'URLs ou un objet
-            const json = JSON.parse(response.data ?? '[]')
-            const list = Array.isArray(json) ? json : (json.images || json.data || [])
-            
-            pages = list.map((img: any) => {
-                // Si c'est un objet {url: '...'} ou juste une string
-                return typeof img === 'string' ? img : img.url
-            })
-        } catch (e) {
-            throw new Error(`Erreur chargement images`)
+        let pages: string[] = []
+        
+        if (Array.isArray(json)) {
+            pages = json
+        } else if (Array.isArray(json.images)) {
+            pages = json.images
+        } else if (Array.isArray(json.pages)) {
+            pages = json.pages
+        } else if (Array.isArray(json.data)) {
+            pages = json.data
         }
+
+        pages = pages.map((img: any) => typeof img === 'string' ? img : img.url)
 
         return App.createChapterDetails({
             id: chapterId,
@@ -175,50 +189,29 @@ export class Kagane extends Source {
         })
     }
 
-    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const section = App.createHomeSection({ id: 'latest', title: 'Latest Updates', containsMoreItems: true, type: 'singleRowNormal' })
-        sectionCallback(section)
-
-        // On interroge la page de recherche du site (C'est ce qui marche le mieux)
-        const request = App.createRequest({
-            url: `${DOMAIN}/search?sort=created_at,desc`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const items = this.parseMangaListFromHTML(response.data ?? '')
-        
-        const mangaList: any[] = []
-        for (const item of items) {
-            mangaList.push(App.createPartialSourceManga({
-                mangaId: item.id,
-                title: item.title,
-                image: item.image,
-                subtitle: undefined
-            }))
-        }
-
-        section.items = mangaList
-        sectionCallback(section)
-    }
-
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const request = App.createRequest({
-            url: `${DOMAIN}/search?q=${encodeURIComponent(query.title ?? '')}`,
+            url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? '')}&take=20`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        const items = this.parseMangaListFromHTML(response.data ?? '')
-        
+        const json = JSON.parse(response.data ?? '{}')
         const tiles: any[] = []
-        for (const item of items) {
+
+        const list = json.data || json.series || []
+
+        for (const item of list) {
+            let image = item.thumbnail || ''
+            if (image && !image.startsWith('http')) {
+                image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
+            }
+
             tiles.push(App.createPartialSourceManga({
-                mangaId: item.id,
-                title: item.title,
-                image: item.image,
+                mangaId: String(item.id),
+                title: item.title || item.name,
+                image: image,
                 subtitle: undefined
             }))
         }
