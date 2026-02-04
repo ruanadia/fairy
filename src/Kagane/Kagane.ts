@@ -1,247 +1,344 @@
 import {
-    Source,
-    SourceManga,
-    Chapter,
-    ChapterDetails,
-    HomeSection,
-    SearchRequest,
-    PagedResults,
-    SourceInfo,
-    ContentRating,
-    Request,
-    Response,
-} from '@paperback/types'
-import * as cheerio from 'cheerio'
+  Source,
+  MangaProviding,
+  ChapterProviding,
+  SearchResultsProviding,
+  HomePageSectionsProviding,
+  SourceInfo,
+  ContentRating,
+  BadgeColor,
+  SourceIntents,
+  Request,
+  Response,
+  SourceManga,
+  Chapter,
+  ChapterDetails,
+  HomeSection,
+  PagedResults,
+  SearchRequest,
+  HomeSectionType,
+  DUISection,
+} from "@paperback/types";
 
-const API_URL = 'https://api.kagane.org/api/v1'
-const DOMAIN = 'https://kagane.org'
+// --- CONSTANTS & CONFIG (Inspiré de Common.ts) ---
+const API_BASE = "https://api.kagane.org/api/v1";
+const DOMAIN = "https://kagane.org";
 
-const COMMON_HEADERS = {
-    'Referer': `${DOMAIN}/`,
-    'Origin': DOMAIN,
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+// --- INTERFACES (Pour typer les données Kagane) ---
+interface KaganeSeries {
+  id: string;
+  name?: string;
+  title?: string;
+  thumbnail?: string;
+  cover?: string;
+  summary?: string;
+  description?: string;
+  status?: string;
+  authors?: string[];
+  artists?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
+interface KaganeChapter {
+  id: string;
+  title?: string;
+  name?: string;
+  chapterNumber?: number;
+  number?: number;
+  sequenceNumber?: number;
+  createdAt?: string;
+}
+
+// --- INFO EXTENSION ---
 export const KaganeInfo: SourceInfo = {
-    version: '1.2.5', // ⬆️ Nouvelle version
-    name: 'Kagane',
-    icon: 'icon.png',
-    author: 'Toi',
-    authorWebsite: 'https://github.com/ruanadia',
-    description: 'Extension Scrapper Brut pour Kagane.org',
-    contentRating: ContentRating.MATURE,
-    websiteBaseURL: DOMAIN
-}
+  version: "1.3.0", // 🚀 Version ComixTo Style
+  name: "Kagane",
+  icon: "icon.png",
+  author: "Toi",
+  authorWebsite: "https://github.com/ruanadia",
+  description: "Extension Kagane (Architecture ComixTo)",
+  contentRating: ContentRating.MATURE,
+  websiteBaseURL: DOMAIN,
+  intents:
+    SourceIntents.MANGA_CHAPTERS |
+    SourceIntents.HOMEPAGE_SECTIONS,
+};
 
-export class Kagane extends Source {
-    requestManager = App.createRequestManager({
-        requestsPerSecond: 3,
-        requestTimeout: 15000,
-    })
+// --- CLASSE PRINCIPALE (Architecture ComixTo) ---
+export class Kagane
+  extends Source
+  implements
+    MangaProviding,
+    ChapterProviding,
+    SearchResultsProviding,
+    HomePageSectionsProviding
+{
+  // State Manager comme ComixTo
+  stateManager = App.createSourceStateManager();
 
-    // --- SCANNER BRUT (La solution ultime) ---
-    // Cette fonction cherche des objets JSON directement dans le texte de la page
-    extractMangaFromText(text: string): any[] {
-        const items: any[] = []
-        const uniqueIds = new Set<string>()
+  // Request Manager avec Interceptor (C'est le secret de ComixTo)
+  requestManager = App.createRequestManager({
+    requestsPerSecond: 4,
+    requestTimeout: 15000,
+    interceptor: {
+      interceptRequest: async (request: Request): Promise<Request> => {
+        request.headers = {
+          ...(request.headers ?? {}),
+          Referer: `${DOMAIN}/`,
+          Origin: DOMAIN,
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+        };
+        return request;
+      },
+      interceptResponse: async (response: Response): Promise<Response> => {
+        return response;
+      },
+    },
+  });
 
-        // 1. On cherche des motifs JSON : {"id":"...","title":"...","thumbnail":"..."}
-        // Le regex cherche un ID suivi (plus loin) d'un titre, ou l'inverse
-        // C'est un peu "sale" mais ça marche sur les Next.js cryptés
+  // --- PARSER INTERNE (Adapté de Parser.ts) ---
+
+  // Helper pour nettoyer les images Kagane/Next.js
+  private getImage(item: any): string {
+    let image = item.thumbnail || item.cover || item.image || "";
+    if (image && !image.startsWith("http")) {
+       // On essaie de reconstruire l'URL propre
+       return `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+    }
+    return image || "https://kagane.org/favicon.ico";
+  }
+
+  // --- MANGA DETAILS ---
+  async getMangaDetails(mangaId: string): Promise<SourceManga> {
+    const request = App.createRequest({
+      url: `${API_BASE}/series/${mangaId}`,
+      method: "GET",
+    });
+
+    const response = await this.requestManager.schedule(request, 1);
+    const json = JSON.parse(response.data ?? "{}");
+    // Kagane API v1 met parfois les données dans `data` ou direct à la racine
+    const data = json.data || json;
+
+    return App.createSourceManga({
+      id: mangaId,
+      mangaInfo: App.createMangaInfo({
+        titles: [data.title || data.name || "Unknown"],
+        image: this.getImage(data),
+        status: data.status === "ONGOING" ? "Ongoing" : "Completed",
+        desc: data.summary || data.description || "No description",
+        author: data.authors ? data.authors.join(", ") : "",
+        artist: data.artists ? data.artists.join(", ") : "",
+      }),
+    });
+  }
+
+  // --- CHAPTERS ---
+  async getChapters(mangaId: string): Promise<Chapter[]> {
+    // Sur Kagane, les chapitres sont souvent inclus dans les détails de la série
+    // Mais on peut aussi avoir une pagination, on prend la liste simple pour commencer
+    const request = App.createRequest({
+      url: `${API_BASE}/series/${mangaId}`,
+      method: "GET",
+    });
+
+    const response = await this.requestManager.schedule(request, 1);
+    const json = JSON.parse(response.data ?? "{}");
+    const data = json.data || json;
+    
+    // On cherche la liste des "books" ou "chapters"
+    const rawChapters: KaganeChapter[] = data.books || data.chapters || [];
+    
+    const chapters: Chapter[] = [];
+    for (const chap of rawChapters) {
+      chapters.push(
+        App.createChapter({
+          id: String(chap.id),
+          chapNum: Number(chap.chapterNumber || chap.number || chap.sequenceNumber || 0),
+          name: chap.title || chap.name || `Chapter ${chap.chapterNumber}`,
+          langCode: "en",
+          time: chap.createdAt ? new Date(chap.createdAt) : new Date(),
+        })
+      );
+    }
+    return chapters;
+  }
+
+  // --- CHAPTER IMAGES ---
+  async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+    const request = App.createRequest({
+      url: `${API_BASE}/books/${mangaId}/file/${chapterId}`,
+      method: "GET",
+    });
+
+    const response = await this.requestManager.schedule(request, 1);
+    const json = JSON.parse(response.data ?? "{}");
+    
+    let pages: string[] = [];
+    // L'API renvoie soit un tableau direct, soit { images: [...] }
+    if (Array.isArray(json)) {
+        pages = json.map((x: any) => (typeof x === 'string' ? x : x.url));
+    } else if (json.images && Array.isArray(json.images)) {
+        pages = json.images.map((x: any) => x.url);
+    } else if (json.data && Array.isArray(json.data)) {
+        pages = json.data.map((x: any) => x.url);
+    }
+
+    return App.createChapterDetails({
+      id: chapterId,
+      mangaId: mangaId,
+      pages: pages,
+    });
+  }
+
+  // --- HOME PAGE (Méthode ComixTo : fetchHomeData helper) ---
+  async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+    const sections = [
+      App.createHomeSection({
+        id: "popular",
+        title: "Popular (Most Views)",
+        containsMoreItems: true,
+        type: HomeSectionType.singleRowNormal,
+      }),
+      App.createHomeSection({
+        id: "latest",
+        title: "Latest Updates",
+        containsMoreItems: true,
+        type: HomeSectionType.singleRowNormal,
+      }),
+    ];
+
+    const promises: Promise<void>[] = [];
+
+    // Section 1: Popular (tri par vues)
+    promises.push(
+      this.fetchHomeData(
+        `${API_BASE}/series?sort=views&order=desc&page=1&take=20`,
+        sections[0],
+        sectionCallback
+      )
+    );
+
+    // Section 2: Latest (tri par date modif)
+    promises.push(
+      this.fetchHomeData(
+        `${API_BASE}/series?sort=last_modified&order=desc&page=1&take=20`,
+        sections[1],
+        sectionCallback
+      )
+    );
+
+    await Promise.all(promises);
+  }
+
+  // Helper inspiré de ComixTo pour charger une section
+  async fetchHomeData(url: string, section: HomeSection, callback: (section: HomeSection) => void) {
+    const request = App.createRequest({ url, method: "GET" });
+    
+    try {
+        const response = await this.requestManager.schedule(request, 1);
+        const json = JSON.parse(response.data ?? "{}");
         
-        // Regex pour capturer des objets ressemblant à des mangas
-        // On cherche des blocs qui contiennent "id":"..." et "thumbnail":"..."
-        const regexGlobal = /{[^{}]*"id"\s*:\s*"(.*?)"[^{}]*"title"\s*:\s*"(.*?)"[^{}]*"thumbnail"\s*:\s*"(.*?)"/g
-        
-        // On nettoie un peu le texte des backslashes qui polluent le JSON inliné
-        const cleanText = text.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+        let items: KaganeSeries[] = [];
+        if (Array.isArray(json)) items = json;
+        else if (json.data && Array.isArray(json.data)) items = json.data;
+        else if (json.series && Array.isArray(json.series)) items = json.series;
 
-        let match
-        while ((match = regexGlobal.exec(cleanText)) !== null) {
-            const id = match[1]
-            const title = match[2]
-            const thumb = match[3]
-
-            if (id && title && !uniqueIds.has(id)) {
-                uniqueIds.add(id)
-                items.push({ id, title, thumbnail: thumb })
-            }
-        }
-
-        // Si la méthode précise échoue, on tente une extraction plus large via Cheerio sur les scripts
-        if (items.length === 0) {
-           // On cherche tout ce qui ressemble à un ID UUID (ex: 37CI...)
-           const uuidRegex = /"id":"([A-Za-z0-9]{20,})"/g
-           while ((match = uuidRegex.exec(cleanText)) !== null) {
-                // Pour chaque ID trouvé, on essaie de trouver le titre juste après
-                const id = match[1]
-                if (uniqueIds.has(id)) continue
-
-                // On extrait un petit bout de texte autour de l'ID pour trouver le reste
-                const sub = cleanText.substring(match.index, match.index + 500)
-                const titleMatch = sub.match(/"(title|name)"\s*:\s*"(.*?)"/)
-                const imgMatch = sub.match(/"(thumbnail|cover|image)"\s*:\s*"(.*?)"/)
-
-                if (titleMatch && imgMatch) {
-                    uniqueIds.add(id)
-                    items.push({ id, title: titleMatch[2], thumbnail: imgMatch[2] })
-                }
-           }
-        }
-
-        return items
-    }
-
-    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        // Une seule section pour tester
-        const section = App.createHomeSection({ 
-            id: 'popular', 
-            title: 'Popular Manga', 
-            containsMoreItems: true, 
-            type: 'singleRowNormal' 
-        })
-        sectionCallback(section)
-
-        // On appelle directement la page de recherche qui contient le plus de données
-        const request = App.createRequest({
-            url: `${DOMAIN}/search?sort=views,desc`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        try {
-            const response = await this.requestManager.schedule(request, 1)
-            const html = response.data ?? ''
-            
-            // On utilise notre scanner brut
-            const items = this.extractMangaFromText(html)
-            
-            const mangaList: any[] = []
-            for (const item of items) {
-                let image = item.thumbnail || ''
-                if (image && !image.startsWith('http')) {
-                    image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
-                }
-                
-                // Sécurité image
-                if (!image) image = 'https://kagane.org/favicon.ico'
-
-                mangaList.push(App.createPartialSourceManga({
-                    mangaId: item.id,
-                    title: item.title,
-                    image: image,
-                    subtitle: undefined
-                }))
-            }
-
-            section.items = mangaList
-            sectionCallback(section)
-
-        } catch (e) {
-            console.log(`Erreur Home: ${e}`)
-            sectionCallback(section)
-        }
-    }
-
-    async getMangaDetails(mangaId: string): Promise<SourceManga> {
-        // Pour les détails, on passe par l'API car c'est plus stable pour un item précis
-        // Si l'API échoue, on pourrait parser le HTML, mais testons l'API d'abord
-        const request = App.createRequest({
-            url: `${API_URL}/series/${mangaId}`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const json = JSON.parse(response.data ?? '{}')
-        const data = json.data || json
-
-        let image = data.thumbnail || ''
-        if (image && !image.startsWith('http')) {
-            image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
-        }
-
-        return App.createSourceManga({
-            id: mangaId,
-            mangaInfo: App.createMangaInfo({
-                titles: [data.title || data.name || 'Unknown'],
-                image: image,
-                status: 'Ongoing',
-                desc: data.summary || data.description || '',
-                artist: data.authors ? data.authors.join(', ') : '',
-                tags: []
-            })
-        })
-    }
-
-    async getChapters(mangaId: string): Promise<Chapter[]> {
-        const request = App.createRequest({
-            url: `${API_URL}/series/${mangaId}`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const json = JSON.parse(response.data ?? '{}')
-        const chapters: Chapter[] = []
-        const list = json.books || json.chapters || json.data?.books || []
-
-        for (const item of list) {
-            chapters.push(App.createChapter({
-                id: String(item.id),
-                chapNum: Number(item.chapterNumber || item.number || 0),
-                name: item.title || `Chapter ${item.number}`,
-                langCode: 'en',
-                time: new Date()
-            }))
-        }
-        return chapters
-    }
-
-    async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const request = App.createRequest({
-            url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const json = JSON.parse(response.data ?? '{}')
-        let pages: string[] = []
-        
-        const list = Array.isArray(json) ? json : (json.images || json.data || [])
-        pages = list.map((x: any) => typeof x === 'string' ? x : x.url)
-
-        return App.createChapterDetails({
-            id: chapterId,
-            mangaId: mangaId,
-            pages: pages
-        })
-    }
-
-    async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
-        // Recherche : On tente le scan HTML aussi car l'API semble bloquée
-        const request = App.createRequest({
-            url: `${DOMAIN}/search?q=${encodeURIComponent(query.title ?? '')}`,
-            method: 'GET',
-            headers: COMMON_HEADERS
-        })
-
-        const response = await this.requestManager.schedule(request, 1)
-        const items = this.extractMangaFromText(response.data ?? '')
-
-        const tiles: any[] = []
+        const mangaList = [];
         for (const item of items) {
-            let image = item.thumbnail || ''
-            if (image && !image.startsWith('http')) image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
-            
-            tiles.push(App.createPartialSourceManga({
-                mangaId: item.id,
-                title: item.title,
-                image: image,
-                subtitle: undefined
-            }))
+            if (!item.id) continue;
+            mangaList.push(
+                App.createPartialSourceManga({
+                    mangaId: String(item.id),
+                    image: this.getImage(item),
+                    title: item.title || item.name || "Unknown",
+                    subtitle: undefined,
+                })
+            );
         }
-        return App.createPagedResults({ results: tiles })
+        section.items = mangaList;
+    } catch (e) {
+        console.log(`Error fetching section ${section.id}: ${e}`);
+        section.items = [];
     }
+    
+    callback(section);
+  }
+
+  // --- VIEW MORE (Pagination comme ComixTo) ---
+  async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
+    const page = metadata?.page ?? 1;
+    let url = "";
+
+    switch (homepageSectionId) {
+      case "popular":
+        url = `${API_BASE}/series?sort=views&order=desc&page=${page}&take=20`;
+        break;
+      case "latest":
+        url = `${API_BASE}/series?sort=last_modified&order=desc&page=${page}&take=20`;
+        break;
+      default:
+        return App.createPagedResults({ results: [], metadata: undefined });
+    }
+
+    const request = App.createRequest({ url, method: "GET" });
+    const response = await this.requestManager.schedule(request, 1);
+    const json = JSON.parse(response.data ?? "{}");
+    
+    let items: KaganeSeries[] = [];
+    if (Array.isArray(json)) items = json;
+    else if (json.data && Array.isArray(json.data)) items = json.data;
+
+    const mangaList = [];
+    for (const item of items) {
+        mangaList.push(
+            App.createPartialSourceManga({
+                mangaId: String(item.id),
+                image: this.getImage(item),
+                title: item.title || item.name || "Unknown",
+            })
+        );
+    }
+
+    // Pagination simple : si on a reçu des items, on suppose qu'il y a une page suivante
+    const hasNext = items.length > 0;
+
+    return App.createPagedResults({
+      results: mangaList,
+      metadata: hasNext ? { page: page + 1 } : undefined,
+    });
+  }
+
+  // --- SEARCH (Comme ComixTo, sans les filtres avancés pour l'instant) ---
+  async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+    const page = metadata?.page ?? 1;
+    // Recherche simple
+    const url = `${API_BASE}/series?search=${encodeURIComponent(query.title ?? "")}&page=${page}&take=20`;
+    
+    const request = App.createRequest({ url, method: "GET" });
+    const response = await this.requestManager.schedule(request, 1);
+    const json = JSON.parse(response.data ?? "{}");
+    
+    let items: KaganeSeries[] = [];
+    if (Array.isArray(json)) items = json;
+    else if (json.data && Array.isArray(json.data)) items = json.data;
+
+    const mangaList = [];
+    for (const item of items) {
+        mangaList.push(
+            App.createPartialSourceManga({
+                mangaId: String(item.id),
+                image: this.getImage(item),
+                title: item.title || item.name || "Unknown",
+            })
+        );
+    }
+
+    return App.createPagedResults({
+      results: mangaList,
+      metadata: items.length > 0 ? { page: page + 1 } : undefined,
+    });
+  }
 }
