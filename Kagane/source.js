@@ -14933,13 +14933,13 @@ var _Sources = (() => {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
   var KaganeInfo = {
-    version: "1.2.3",
+    version: "1.2.4",
     // ⬆️ Nouvelle version
     name: "Kagane",
     icon: "icon.png",
     author: "Toi",
     authorWebsite: "https://github.com/ruanadia",
-    description: "Extension Hybride pour Kagane.org",
+    description: "Extension Multi-Sections pour Kagane.org",
     contentRating: import_types2.ContentRating.MATURE,
     websiteBaseURL: DOMAIN
   };
@@ -14951,21 +14951,29 @@ var _Sources = (() => {
         requestTimeout: 15e3
       });
     }
-    // --- FONCTION DE SECOURS (Lit le HTML si l'API échoue) ---
+    // --- SCANNER HTML AMÉLIORÉ ---
     parseHtmlList(html3) {
       const $2 = load(html3);
       const items = [];
-      $2('a[href^="/series/"]').each((i, el) => {
-        const id = $2(el).attr("href")?.split("/").pop();
-        const title = $2(el).find("h3, h4, .title, span.font-bold").first().text().trim() || $2(el).text().trim();
+      $2('a[href*="/series/"], a[href*="/comic/"]').each((i, el) => {
+        const href = $2(el).attr("href");
+        const id = href?.split("/").pop();
+        const title = $2(el).find("h3, h4, .title, span, p").first().text().trim() || $2(el).attr("title") || $2(el).text().trim();
         let image = $2(el).find("img").attr("src") || $2(el).find("img").attr("srcset")?.split(" ")[0] || "";
-        if (image.startsWith("/")) image = DOMAIN + image;
-        if (image.includes("url=")) {
-          const match = image.match(/url=(.*?)&/);
-          if (match) image = decodeURIComponent(match[1]);
-          if (image.startsWith("/")) image = DOMAIN + image;
+        if (!image) {
+          image = $2(el).closest("div").find("img").first().attr("src") || "";
         }
-        if (id && title) {
+        if (image) {
+          if (image.startsWith("/")) image = DOMAIN + image;
+          if (image.includes("url=")) {
+            const match = image.match(/url=(.*?)&/);
+            if (match) image = decodeURIComponent(match[1]);
+            if (image.startsWith("/")) image = DOMAIN + image;
+          }
+        } else {
+          image = "https://kagane.org/favicon.ico";
+        }
+        if (id && title && title.length < 100) {
           if (!items.find((x) => x.id === id)) {
             items.push({ id, title, image });
           }
@@ -14974,20 +14982,27 @@ var _Sources = (() => {
       return items;
     }
     async getHomePageSections(sectionCallback) {
-      const section = App.createHomeSection({
-        id: "popular",
-        title: "Popular Manga",
-        containsMoreItems: true,
-        type: "singleRowNormal"
-      });
-      sectionCallback(section);
-      const apiRequest = App.createRequest({
-        url: `${API_URL}/series?sort=views&order=desc&page=1&take=20`,
+      const sectionPopular = App.createHomeSection({ id: "popular", title: "Popular Manga", containsMoreItems: true, type: "singleRowNormal" });
+      const sectionLatest = App.createHomeSection({ id: "latest", title: "Latest Updates", containsMoreItems: true, type: "singleRowNormal" });
+      sectionCallback(sectionPopular);
+      sectionCallback(sectionLatest);
+      const requestPopular = App.createRequest({
+        url: `${API_URL}/series?sort=views&order=desc&page=1&take=10`,
         method: "GET",
         headers: COMMON_HEADERS
       });
+      this.fetchSectionData(requestPopular, sectionPopular, sectionCallback);
+      const requestLatest = App.createRequest({
+        url: `${API_URL}/series?sort=last_modified&order=desc&page=1&take=10`,
+        method: "GET",
+        headers: COMMON_HEADERS
+      });
+      this.fetchSectionData(requestLatest, sectionLatest, sectionCallback);
+    }
+    // Fonction d'aide pour éviter de répéter le code
+    async fetchSectionData(request, section, callback) {
       try {
-        const response = await this.requestManager.schedule(apiRequest, 1);
+        const response = await this.requestManager.schedule(request, 1);
         let items = [];
         try {
           const json = JSON.parse(response.data ?? "{}");
@@ -14997,10 +15012,9 @@ var _Sources = (() => {
         } catch (e) {
         }
         if (items.length === 0) {
-          console.log("API vide, passage au mode HTML...");
           const htmlRequest = App.createRequest({
-            // On demande la page de recherche triée par vues (ou défaut)
-            url: `${DOMAIN}/search?sort=views,desc`,
+            url: `${DOMAIN}/search?sort=created_at,desc`,
+            // Page de recherche standard
             method: "GET",
             headers: COMMON_HEADERS
           });
@@ -15009,24 +15023,25 @@ var _Sources = (() => {
         }
         const mangaList = [];
         for (const item of items) {
+          if (!item.id) continue;
           let image = item.thumbnail || item.cover || item.image || "";
           if (image && !image.startsWith("http")) {
             image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+          } else if (!image) {
+            image = "https://kagane.org/favicon.ico";
           }
-          if (item.id) {
-            mangaList.push(App.createPartialSourceManga({
-              mangaId: String(item.id),
-              title: item.title || item.name || "Unknown",
-              image,
-              subtitle: void 0
-            }));
-          }
+          mangaList.push(App.createPartialSourceManga({
+            mangaId: String(item.id),
+            title: item.title || item.name || "Unknown",
+            image,
+            subtitle: void 0
+          }));
         }
         section.items = mangaList;
-        sectionCallback(section);
+        callback(section);
       } catch (e) {
-        console.log(`Erreur globale Home: ${e}`);
-        sectionCallback(section);
+        console.log(`Erreur Section ${section.id}: ${e}`);
+        callback(section);
       }
     }
     async getMangaDetails(mangaId) {
@@ -15049,6 +15064,7 @@ var _Sources = (() => {
           image,
           status: "Ongoing",
           desc: data2.summary || data2.description || "",
+          artist: data2.authors ? data2.authors.join(", ") : "",
           tags: []
         })
       });
