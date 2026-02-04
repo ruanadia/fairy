@@ -16,12 +16,12 @@ import * as cheerio from 'cheerio'
 const DOMAIN = 'https://fairyscans.com'
 
 export const FairyScansInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.0.8', // J'ai monté la version pour l'update
     name: 'FairyScans',
     icon: 'icon.png',
     author: 'Toi',
     authorWebsite: 'https://github.com/ruanadia',
-    description: 'Extension pour lire FairyScans sur Paperback',
+    description: 'Extension Paperback pour FairyScans',
     contentRating: ContentRating.MATURE,
     websiteBaseURL: DOMAIN
 }
@@ -41,12 +41,10 @@ export class FairyScans extends Source {
         const response = await this.requestManager.schedule(request, 1)
         const $ = cheerio.load(response.data ?? '')
 
-        // Sélecteurs spécifiques à MangaReader
         const title = $('.entry-title').text().trim()
         const image = $('.thumb img').attr('src') ?? ''
         const description = $('.entry-content p').text().trim()
         
-        // Statut
         let status = 'Ongoing'
         const statusText = $('.imptdt:contains("Status") i').text().trim().toLowerCase()
         if (statusText.includes('completed')) status = 'Completed'
@@ -72,33 +70,25 @@ export class FairyScans extends Source {
         const $ = cheerio.load(response.data ?? '')
 
         const chapters: Chapter[] = []
-        // Sélecteur standard MangaReader pour les chapitres
         const chapterNodes = $('#chapterlist li')
 
         for (const node of chapterNodes) {
-            const link = $(node).find('a') // Parfois 'div a', parfois juste 'a'
+            const link = $(node).find('a')
             const title = $(node).find('.chapternum').text().trim() || link.text().trim()
             const href = link.attr('href')
-            
-            // On extrait l'ID unique du chapitre depuis l'URL (ex: /chapter-100/)
-            // Pour MangaReader, souvent l'URL complète suffit, mais prenons le dernier segment
-            // L'ID doit être ce qui suit /manga/nom-du-manga/
-            // Exemple href: https://fairyscans.com/manga/titre/chapitre-1/
-            // On va utiliser l'URL complète relative comme ID pour être sûr
             const id = href ? href.replace(DOMAIN, '') : ''
 
             if (!id) continue
 
-            // Extraction du numéro (ex: "Chapter 12" -> 12)
             const chapNum = Number(title.match(/(\d+(\.\d+)?)/)?.[0] ?? 0)
             const timeStr = $(node).find('.chapterdate').text().trim()
-            const time = new Date(timeStr) // MangaReader met souvent des dates lisibles
+            const time = new Date(timeStr)
 
             chapters.push(App.createChapter({
-                id: id, // L'ID est l'URL relative (ex: /manga/titre/chapitre-1/)
+                id: id,
                 chapNum: chapNum,
                 name: title,
-                langCode: 'fr', // Ou 'en' selon le contenu
+                langCode: 'en', // FairyScans semble être en anglais principalement
                 time: isNaN(time.getTime()) ? new Date() : time
             }))
         }
@@ -106,7 +96,6 @@ export class FairyScans extends Source {
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        // chapterId contient déjà le chemin relatif (ex: /manga/titre/chapitre-1/)
         const request = App.createRequest({
             url: `${DOMAIN}${chapterId}`,
             method: 'GET'
@@ -116,7 +105,6 @@ export class FairyScans extends Source {
         const $ = cheerio.load(response.data ?? '')
 
         const pages: string[] = []
-        // Sélecteur standard MangaReader pour les images
         const images = $('#readerarea img')
 
         for (const img of images) {
@@ -143,7 +131,6 @@ export class FairyScans extends Source {
         const $ = cheerio.load(response.data ?? '')
         const tiles: any[] = []
 
-        // Sélecteur MangaReader pour les listes (.bsx)
         const foundItems = $('.listupd .bsx')
 
         for (const item of foundItems) {
@@ -151,7 +138,6 @@ export class FairyScans extends Source {
             const title = link.attr('title') ?? $(item).find('.tt').text().trim()
             const image = $(item).find('img').attr('src') ?? ''
             const href = link.attr('href')
-            // Extraction ID : /manga/nom-du-manga/
             const id = href?.split('/manga/')[1]?.replace(/\/$/, '')
 
             if (id && title) {
@@ -170,15 +156,18 @@ export class FairyScans extends Source {
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const section = App.createHomeSection({
-            id: 'latest',
-            title: 'Derniers Ajouts',
-            containsMoreItems: true,
-            type: 'singleRowNormal'
-        })
-        sectionCallback(section)
+        
+        // 1. Définition des sections (Titres en Anglais)
+        const sectionPopular = App.createHomeSection({ id: 'popular_today', title: 'Popular Today', containsMoreItems: false, type: 'singleRowLarge' })
+        const sectionSeries = App.createHomeSection({ id: 'popular_series', title: 'Popular Series', containsMoreItems: false, type: 'singleRowNormal' })
+        const sectionLatest = App.createHomeSection({ id: 'latest_update', title: 'Latest Update', containsMoreItems: true, type: 'singleRowNormal' })
+        
+        // Affichage immédiat des titres
+        sectionCallback(sectionPopular)
+        sectionCallback(sectionSeries)
+        sectionCallback(sectionLatest)
 
-        // Sur MangaReader, la page d'accueil liste directement les nouveautés
+        // 2. Requête vers la page d'accueil
         const request = App.createRequest({
             url: DOMAIN,
             method: 'GET'
@@ -187,28 +176,51 @@ export class FairyScans extends Source {
         const response = await this.requestManager.schedule(request, 1)
         const $ = cheerio.load(response.data ?? '')
         
-        const mangaList: any[] = []
-        // Le sélecteur .listupd .bsx est parfait pour la homepage aussi
-        const items = $('.listupd .bsx')
-
-        for (const item of items) {
-            const link = $(item).find('a').first()
-            const title = link.attr('title') ?? $(item).find('.tt').text().trim()
+        // --- A. Section Popular Today ---
+        // Sélecteur : Slider du haut (.popularslider)
+        const popularItems: any[] = []
+        for (const item of $('.popularslider .bsx').toArray()) {
+            const id = $(item).find('a').attr('href')?.split('/manga/')[1]?.replace(/\/$/, '')
+            const title = $(item).find('a').attr('title')
             const image = $(item).find('img').attr('src') ?? ''
-            const href = link.attr('href')
-            const id = href?.split('/manga/')[1]?.replace(/\/$/, '')
-
-            if (id && title) {
-                mangaList.push(App.createPartialSourceManga({
-                    mangaId: id,
-                    title: title,
-                    image: image,
-                    subtitle: undefined
-                }))
+            
+            if(id && title) {
+                popularItems.push(App.createPartialSourceManga({ mangaId: id, title: title, image: image, subtitle: undefined }))
             }
         }
+        sectionPopular.items = popularItems
+        sectionCallback(sectionPopular)
 
-        section.items = mangaList
-        sectionCallback(section)
+        // --- B. Section Popular Series ---
+        // Sélecteur : La liste dans la sidebar (.serieslist.pop)
+        const seriesItems: any[] = []
+        for (const item of $('.serieslist.pop ul li').toArray()) {
+            // Dans la sidebar, l'image est dans .imgseries et le titre dans .leftseries h2 a
+            const link = $(item).find('.leftseries h2 a')
+            const id = link.attr('href')?.split('/manga/')[1]?.replace(/\/$/, '')
+            const title = link.text().trim()
+            const image = $(item).find('.imgseries img').attr('src') ?? ''
+            
+            if(id && title) {
+                seriesItems.push(App.createPartialSourceManga({ mangaId: id, title: title, image: image, subtitle: undefined }))
+            }
+        }
+        sectionSeries.items = seriesItems
+        sectionCallback(sectionSeries)
+
+        // --- C. Section Latest Update ---
+        // Sélecteur : Le corps principal (.postbody .listupd)
+        const latestItems: any[] = []
+        for (const item of $('.postbody .listupd .bsx').toArray()) {
+            const id = $(item).find('a').attr('href')?.split('/manga/')[1]?.replace(/\/$/, '')
+            const title = $(item).find('a').attr('title')
+            const image = $(item).find('img').attr('src') ?? ''
+            
+            if(id && title) {
+                latestItems.push(App.createPartialSourceManga({ mangaId: id, title: title, image: image, subtitle: undefined }))
+            }
+        }
+        sectionLatest.items = latestItems
+        sectionCallback(sectionLatest)
     }
 }
