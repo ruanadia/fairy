@@ -7,7 +7,8 @@
 "scripts": {
     "build": "tsc",
     "bundle": "GITHUB_REPOSITORY=ruanadia/fairy baseURL=https://ruanadia.github.io/fairy/bundles npx paperback bundle"
-},
+
+  },
   "homepage": "https://ruanadia.github.io/fairy/bundles", 
   "repository": {
     "type": "git",

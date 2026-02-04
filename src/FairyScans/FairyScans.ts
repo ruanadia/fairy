@@ -1,6 +1,6 @@
 import {
     Source,
-    SourceManga,   // CORRIGÉ: Manga -> SourceManga
+    SourceManga,
     Chapter,
     ChapterDetails,
     HomeSection,
@@ -10,14 +10,13 @@ import {
     ContentRating,
     Request,
     Response,
-    // On retire MangaStatus et LanguageCode qui n'existent plus
 } from '@paperback/types'
 import * as cheerio from 'cheerio'
 
 const DOMAIN = 'https://fairyscans.com'
 
 export const FairyScansInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'FairyScans',
     icon: 'icon.png',
     author: 'Toi',
@@ -33,7 +32,6 @@ export class FairyScans extends Source {
         requestTimeout: 15000,
     })
 
-    // CORRIGÉ: Le type de retour est Promise<SourceManga>
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         const request = App.createRequest({
             url: `${DOMAIN}/manga/${mangaId}`,
@@ -41,30 +39,24 @@ export class FairyScans extends Source {
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        
-        // CORRIGÉ: On ajoute "?? ''" pour garantir que ce n'est pas undefined
         const $ = cheerio.load(response.data ?? '')
 
-        const title = $('.post-title h1').first().text().trim()
-        // Astuce: On prend data-src si dispo (lazy load), sinon src
-        const imgTag = $('.summary_image img').first()
-        const image = imgTag.attr('data-src') ?? imgTag.attr('src') ?? ''
+        // Sélecteurs spécifiques à MangaReader
+        const title = $('.entry-title').text().trim()
+        const image = $('.thumb img').attr('src') ?? ''
+        const description = $('.entry-content p').text().trim()
         
-        const description = $('.summary__content').text().trim()
-        
-        // CORRIGÉ: Plus de MangaStatus. On utilise des strings simples.
+        // Statut
         let status = 'Ongoing'
-        const statusText = $('.post-status .summary-content').text().trim().toLowerCase()
-        if (statusText.includes('completed') || statusText.includes('terminé') || statusText.includes('end')) {
-            status = 'Completed'
-        }
+        const statusText = $('.imptdt:contains("Status") i').text().trim().toLowerCase()
+        if (statusText.includes('completed')) status = 'Completed'
 
         return App.createSourceManga({
             id: mangaId,
             mangaInfo: App.createMangaInfo({
                 titles: [title],
                 image: image,
-                status: status, // On passe la string 'Ongoing' ou 'Completed'
+                status: status,
                 desc: description,
             })
         })
@@ -77,55 +69,59 @@ export class FairyScans extends Source {
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        // CORRIGÉ: Securité sur les données
         const $ = cheerio.load(response.data ?? '')
 
         const chapters: Chapter[] = []
-        const chapterNodes = $('.wp-manga-chapter')
+        // Sélecteur standard MangaReader pour les chapitres
+        const chapterNodes = $('#chapterlist li')
 
         for (const node of chapterNodes) {
-            const link = $(node).find('a')
-            const title = link.text().trim()
-            // Récupération ID sécurisée
+            const link = $(node).find('a') // Parfois 'div a', parfois juste 'a'
+            const title = $(node).find('.chapternum').text().trim() || link.text().trim()
             const href = link.attr('href')
-            const id = href?.split('/').filter(x => x).pop() 
             
+            // On extrait l'ID unique du chapitre depuis l'URL (ex: /chapter-100/)
+            // Pour MangaReader, souvent l'URL complète suffit, mais prenons le dernier segment
+            // L'ID doit être ce qui suit /manga/nom-du-manga/
+            // Exemple href: https://fairyscans.com/manga/titre/chapitre-1/
+            // On va utiliser l'URL complète relative comme ID pour être sûr
+            const id = href ? href.replace(DOMAIN, '') : ''
+
             if (!id) continue
 
+            // Extraction du numéro (ex: "Chapter 12" -> 12)
             const chapNum = Number(title.match(/(\d+(\.\d+)?)/)?.[0] ?? 0)
+            const timeStr = $(node).find('.chapterdate').text().trim()
+            const time = new Date(timeStr) // MangaReader met souvent des dates lisibles
 
             chapters.push(App.createChapter({
-                id: id,
+                id: id, // L'ID est l'URL relative (ex: /manga/titre/chapitre-1/)
                 chapNum: chapNum,
                 name: title,
-                // CORRIGÉ: LanguageCode.FRENCH -> 'fr' (ou 'en' si le site est en anglais)
-                langCode: 'fr', 
-                time: new Date() 
+                langCode: 'fr', // Ou 'en' selon le contenu
+                time: isNaN(time.getTime()) ? new Date() : time
             }))
         }
-        
         return chapters
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+        // chapterId contient déjà le chemin relatif (ex: /manga/titre/chapitre-1/)
         const request = App.createRequest({
-            url: `${DOMAIN}/manga/${mangaId}/${chapterId}`,
+            url: `${DOMAIN}${chapterId}`,
             method: 'GET'
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        // CORRIGÉ
         const $ = cheerio.load(response.data ?? '')
 
         const pages: string[] = []
-        const images = $('.reading-content img')
+        // Sélecteur standard MangaReader pour les images
+        const images = $('#readerarea img')
 
         for (const img of images) {
-            // On gère les blancs autour des liens avec trim()
-            let url = $(img).attr('data-src')?.trim() ?? $(img).attr('src')?.trim()
-            if (url) {
-                pages.push(url)
-            }
+            let url = $(img).attr('src')?.trim()
+            if (url) pages.push(url)
         }
 
         return App.createChapterDetails({
@@ -136,9 +132,7 @@ export class FairyScans extends Source {
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
-        // On construit l'URL de recherche standard pour les sites Madara (comme FairyScans)
-        // Format: domain/?s=recherche&post_type=wp-manga
-        const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query.title ?? '')}&post_type=wp-manga`
+        const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query.title ?? '')}`
         
         const request = App.createRequest({
             url: searchUrl,
@@ -146,22 +140,19 @@ export class FairyScans extends Source {
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        
-        // Sécurité si la requête échoue
         const $ = cheerio.load(response.data ?? '')
         const tiles: any[] = []
 
-        // On cherche les blocs de résultats. 
-        // Sur Madara, c'est souvent ".c-tabs-item__content"
-        const foundItems = $('.c-tabs-item__content')
+        // Sélecteur MangaReader pour les listes (.bsx)
+        const foundItems = $('.listupd .bsx')
 
         for (const item of foundItems) {
-            const titleElement = $(item).find('.post-title h3 a')
-            const title = titleElement.text().trim()
+            const link = $(item).find('a')
+            const title = link.attr('title') ?? $(item).find('.tt').text().trim()
             const image = $(item).find('img').attr('src') ?? ''
-            const href = titleElement.attr('href')
-            // On extrait l'ID de l'URL
-            const id = href?.split('/').filter(x => x).pop()
+            const href = link.attr('href')
+            // Extraction ID : /manga/nom-du-manga/
+            const id = href?.split('/manga/')[1]?.replace(/\/$/, '')
 
             if (id && title) {
                 tiles.push(App.createPartialSourceManga({
@@ -173,22 +164,21 @@ export class FairyScans extends Source {
             }
         }
 
-        // On renvoie les résultats formatés
         return App.createPagedResults({
             results: tiles
         })
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        // 1. On crée une section "Derniers Ajouts"
         const section = App.createHomeSection({
             id: 'latest',
             title: 'Derniers Ajouts',
-            containsMoreItems: false, // On met false pour l'instant pour faire simple
+            containsMoreItems: true,
             type: 'singleRowNormal'
         })
+        sectionCallback(section)
 
-        // 2. On récupère la page d'accueil du site
+        // Sur MangaReader, la page d'accueil liste directement les nouveautés
         const request = App.createRequest({
             url: DOMAIN,
             method: 'GET'
@@ -198,22 +188,15 @@ export class FairyScans extends Source {
         const $ = cheerio.load(response.data ?? '')
         
         const mangaList: any[] = []
-
-        // 3. On cherche les mangas sur la page d'accueil
-        // (Sélecteur standard pour les sites Madara comme FairyScans : .page-item-detail)
-        const items = $('.page-item-detail')
+        // Le sélecteur .listupd .bsx est parfait pour la homepage aussi
+        const items = $('.listupd .bsx')
 
         for (const item of items) {
-            const titleElement = $(item).find('.post-title h3 a')
-            const title = titleElement.text().trim()
-            
-            // On gère l'image (data-src pour le lazy loading, ou src)
-            const imgTag = $(item).find('img')
-            const image = imgTag.attr('data-src') ?? imgTag.attr('src') ?? ''
-            
-            // On récupère l'ID
-            const href = titleElement.attr('href')
-            const id = href?.split('/').filter(x => x).pop()
+            const link = $(item).find('a').first()
+            const title = link.attr('title') ?? $(item).find('.tt').text().trim()
+            const image = $(item).find('img').attr('src') ?? ''
+            const href = link.attr('href')
+            const id = href?.split('/manga/')[1]?.replace(/\/$/, '')
 
             if (id && title) {
                 mangaList.push(App.createPartialSourceManga({
@@ -225,7 +208,6 @@ export class FairyScans extends Source {
             }
         }
 
-        // 4. On remplit la section et on l'envoie à l'application
         section.items = mangaList
         sectionCallback(section)
     }

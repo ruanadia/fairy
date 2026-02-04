@@ -14927,7 +14927,7 @@ var _Sources = (() => {
   // src/FairyScans/FairyScans.ts
   var DOMAIN = "https://fairyscans.com";
   var FairyScansInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "FairyScans",
     icon: "icon.png",
     author: "Toi",
@@ -14944,7 +14944,6 @@ var _Sources = (() => {
         requestTimeout: 15e3
       });
     }
-    // CORRIGÉ: Le type de retour est Promise<SourceManga>
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
         url: `${DOMAIN}/manga/${mangaId}`,
@@ -14952,22 +14951,18 @@ var _Sources = (() => {
       });
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
-      const title = $2(".post-title h1").first().text().trim();
-      const imgTag = $2(".summary_image img").first();
-      const image = imgTag.attr("data-src") ?? imgTag.attr("src") ?? "";
-      const description = $2(".summary__content").text().trim();
+      const title = $2(".entry-title").text().trim();
+      const image = $2(".thumb img").attr("src") ?? "";
+      const description = $2(".entry-content p").text().trim();
       let status = "Ongoing";
-      const statusText = $2(".post-status .summary-content").text().trim().toLowerCase();
-      if (statusText.includes("completed") || statusText.includes("termin\xE9") || statusText.includes("end")) {
-        status = "Completed";
-      }
+      const statusText = $2('.imptdt:contains("Status") i').text().trim().toLowerCase();
+      if (statusText.includes("completed")) status = "Completed";
       return App.createSourceManga({
         id: mangaId,
         mangaInfo: App.createMangaInfo({
           titles: [title],
           image,
           status,
-          // On passe la string 'Ongoing' ou 'Completed'
           desc: description
         })
       });
@@ -14980,39 +14975,40 @@ var _Sources = (() => {
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
       const chapters = [];
-      const chapterNodes = $2(".wp-manga-chapter");
+      const chapterNodes = $2("#chapterlist li");
       for (const node of chapterNodes) {
         const link = $2(node).find("a");
-        const title = link.text().trim();
+        const title = $2(node).find(".chapternum").text().trim() || link.text().trim();
         const href = link.attr("href");
-        const id = href?.split("/").filter((x) => x).pop();
+        const id = href ? href.replace(DOMAIN, "") : "";
         if (!id) continue;
         const chapNum = Number(title.match(/(\d+(\.\d+)?)/)?.[0] ?? 0);
+        const timeStr = $2(node).find(".chapterdate").text().trim();
+        const time = new Date(timeStr);
         chapters.push(App.createChapter({
           id,
+          // L'ID est l'URL relative (ex: /manga/titre/chapitre-1/)
           chapNum,
           name: title,
-          // CORRIGÉ: LanguageCode.FRENCH -> 'fr' (ou 'en' si le site est en anglais)
           langCode: "fr",
-          time: /* @__PURE__ */ new Date()
+          // Ou 'en' selon le contenu
+          time: isNaN(time.getTime()) ? /* @__PURE__ */ new Date() : time
         }));
       }
       return chapters;
     }
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
-        url: `${DOMAIN}/manga/${mangaId}/${chapterId}`,
+        url: `${DOMAIN}${chapterId}`,
         method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
       const pages = [];
-      const images = $2(".reading-content img");
+      const images = $2("#readerarea img");
       for (const img of images) {
-        let url = $2(img).attr("data-src")?.trim() ?? $2(img).attr("src")?.trim();
-        if (url) {
-          pages.push(url);
-        }
+        let url = $2(img).attr("src")?.trim();
+        if (url) pages.push(url);
       }
       return App.createChapterDetails({
         id: chapterId,
@@ -15021,7 +15017,7 @@ var _Sources = (() => {
       });
     }
     async getSearchResults(query, metadata) {
-      const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query.title ?? "")}&post_type=wp-manga`;
+      const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query.title ?? "")}`;
       const request = App.createRequest({
         url: searchUrl,
         method: "GET"
@@ -15029,13 +15025,13 @@ var _Sources = (() => {
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
       const tiles = [];
-      const foundItems = $2(".c-tabs-item__content");
+      const foundItems = $2(".listupd .bsx");
       for (const item of foundItems) {
-        const titleElement = $2(item).find(".post-title h3 a");
-        const title = titleElement.text().trim();
+        const link = $2(item).find("a");
+        const title = link.attr("title") ?? $2(item).find(".tt").text().trim();
         const image = $2(item).find("img").attr("src") ?? "";
-        const href = titleElement.attr("href");
-        const id = href?.split("/").filter((x) => x).pop();
+        const href = link.attr("href");
+        const id = href?.split("/manga/")[1]?.replace(/\/$/, "");
         if (id && title) {
           tiles.push(App.createPartialSourceManga({
             mangaId: id,
@@ -15053,10 +15049,10 @@ var _Sources = (() => {
       const section = App.createHomeSection({
         id: "latest",
         title: "Derniers Ajouts",
-        containsMoreItems: false,
-        // On met false pour l'instant pour faire simple
+        containsMoreItems: true,
         type: "singleRowNormal"
       });
+      sectionCallback(section);
       const request = App.createRequest({
         url: DOMAIN,
         method: "GET"
@@ -15064,14 +15060,13 @@ var _Sources = (() => {
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
       const mangaList = [];
-      const items = $2(".page-item-detail");
+      const items = $2(".listupd .bsx");
       for (const item of items) {
-        const titleElement = $2(item).find(".post-title h3 a");
-        const title = titleElement.text().trim();
-        const imgTag = $2(item).find("img");
-        const image = imgTag.attr("data-src") ?? imgTag.attr("src") ?? "";
-        const href = titleElement.attr("href");
-        const id = href?.split("/").filter((x) => x).pop();
+        const link = $2(item).find("a").first();
+        const title = link.attr("title") ?? $2(item).find(".tt").text().trim();
+        const image = $2(item).find("img").attr("src") ?? "";
+        const href = link.attr("href");
+        const id = href?.split("/manga/")[1]?.replace(/\/$/, "");
         if (id && title) {
           mangaList.push(App.createPartialSourceManga({
             mangaId: id,
