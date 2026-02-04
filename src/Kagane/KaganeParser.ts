@@ -67,15 +67,13 @@ export class KaganeParser {
         return App.createChapterDetails({
             id: chapterId,
             mangaId: mangaId,
-            pages: pages,
-            
+            pages: pages
         })
     }
 
-    // --- NOUVEAU : Parsing des résultats de recherche ---
+    // --- Parsing des résultats de recherche / Accueil ---
     parseSearchResults(json: any): PagedResults {
         const results: PartialSourceManga[] = []
-        // L'API renvoie souvent une liste dans 'data'
         const list = json.data || json
 
         for (const item of list) {

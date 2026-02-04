@@ -8,7 +8,8 @@ import {
     Request,
     Response,
     SearchRequest,
-    PagedResults
+    PagedResults,
+    HomeSection
 } from '@paperback/types'
 import { KaganeParser } from './KaganeParser'
 
@@ -16,7 +17,7 @@ const KAGANE_API = 'https://api.kagane.org/api/v1'
 const KAGANE_DOMAIN = 'https://kagane.org'
 
 export const KaganeInfo: SourceInfo = {
-    version: '1.0.4',
+    version: '1.0.5',
     name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
@@ -78,10 +79,8 @@ export class Kagane extends Source {
         return this.parser.parseChapterDetails(json, mangaId, chapterId)
     }
 
-    // --- NOUVEAU : Recherche ---
+    // --- Recherche ---
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
-        // On construit l'URL de recherche.
-        // Si l'utilisateur tape un titre, on l'ajoute en paramètre 'q'.
         let url = `${KAGANE_API}/series`
         if (query.title) {
             url += `?q=${encodeURIComponent(query.title)}`
@@ -96,5 +95,43 @@ export class Kagane extends Source {
         const json = JSON.parse(response.data ?? '[]')
 
         return this.parser.parseSearchResults(json)
+    }
+
+    // --- Page d'accueil (Sections) ---
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        // 1. Définir les sections
+        const sectionPopular = App.createHomeSection({ id: 'popular', title: 'Popular Today', containsMoreItems: true, type: 'singleRowLarge' })
+        const sectionLatest = App.createHomeSection({ id: 'latest', title: 'Latest Series', containsMoreItems: true, type: 'singleRowNormal' })
+        
+        // Afficher les titres vides tout de suite
+        sectionCallback(sectionPopular)
+        sectionCallback(sectionLatest)
+
+        // 2. Récupérer le contenu "Populaire"
+        // On utilise le tri par vues du jour (trouvé dans le code du site)
+        const requestPopular = App.createRequest({
+            url: `${KAGANE_API}/series?sort=avg_views_today,desc`,
+            method: 'GET'
+        })
+        const responsePopular = await this.requestManager.schedule(requestPopular, 1)
+        const jsonPopular = JSON.parse(responsePopular.data ?? '[]')
+        
+        // On utilise le parser existant pour transformer le JSON en liste de mangas
+        const popularResults = this.parser.parseSearchResults(jsonPopular)
+        sectionPopular.items = popularResults.results
+        sectionCallback(sectionPopular)
+
+        // 3. Récupérer le contenu "Latest" (Derniers ajouts)
+        // Par défaut, l'API /series donne souvent les derniers ajouts
+        const requestLatest = App.createRequest({
+            url: `${KAGANE_API}/series`,
+            method: 'GET'
+        })
+        const responseLatest = await this.requestManager.schedule(requestLatest, 1)
+        const jsonLatest = JSON.parse(responseLatest.data ?? '[]')
+
+        const latestResults = this.parser.parseSearchResults(jsonLatest)
+        sectionLatest.items = latestResults.results
+        sectionCallback(sectionLatest)
     }
 }
