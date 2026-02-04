@@ -14932,7 +14932,8 @@ var _Sources = (() => {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
   var KaganeComicInfo = {
-    version: "1.0.1",
+    version: "1.0.2",
+    // J'ai monté la version pour forcer la mise à jour
     name: "KaganeComic",
     icon: "icon.png",
     author: "Toi",
@@ -14944,93 +14945,121 @@ var _Sources = (() => {
   var KaganeComic = class extends import_types2.Source {
     constructor() {
       super(...arguments);
-      // Correction : On enlève l'intercepteur ici pour éviter l'erreur de type
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 3,
         requestTimeout: 15e3
       });
     }
-    // --- Fonction Magique pour décoder les données Next.js ---
+    // --- NOUVELLE FONCTION DE PARSING PLUS ROBUSTE ---
     parseNextJsData(html3) {
       const $2 = load(html3);
-      try {
-        const match = html3.match(/"data":\s*(\[\{.*?"id":.*?\}\])/);
-        if (match && match[1]) {
-          return JSON.parse(match[1]);
+      let foundData = [];
+      $2("script").each((index2, element) => {
+        const content = $2(element).html();
+        if (!content) return;
+        if (content.includes("self.__next_f.push")) {
+          try {
+            const matches = content.match(/{"id":".*?","name":".*?","summary":".*?"/g);
+            if (matches) {
+              const rawData = content;
+              const dataMatch = rawData.match(/"data":\[({.*?})\]/);
+              if (dataMatch && dataMatch[1]) {
+                const itemRegex = /{"id":"(.*?)","name":"(.*?)","summary":".*?","thumbnail":"(.*?)"/g;
+                let match;
+              }
+            }
+          } catch (e) {
+          }
         }
-      } catch (e) {
-        console.log("Erreur parsing JSON Next.js");
-      }
-      return [];
+      });
+      const mangaItems = $2('a[href^="/series/"], a[href^="/comic/"]');
+      mangaItems.each((i, el) => {
+        const href = $2(el).attr("href");
+        const id = href?.split("/").pop();
+        const title = $2(el).find("h3, h4, .title, span.font-bold").first().text().trim() || $2(el).attr("title");
+        const img = $2(el).find("img").attr("src") || $2(el).find("img").attr("srcset")?.split(" ")[0];
+        if (id && title) {
+          if (!foundData.find((x) => x.id === id)) {
+            foundData.push({
+              id,
+              name: title,
+              thumbnail: img
+            });
+          }
+        }
+      });
+      return foundData;
     }
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
         url: `${DOMAIN}/series/${mangaId}`,
         method: "GET",
         headers: COMMON_HEADERS
-        // Ajout manuel des headers
       });
       const response = await this.requestManager.schedule(request, 1);
       const html3 = response.data ?? "";
       const $2 = load(html3);
       const title = $2("h1").text().trim() || "Titre Inconnu";
-      const image = $2('img[alt*="cover"]').attr("src") || $2("img").first().attr("src") || "";
-      const desc = $2("p.description").text().trim() || $2('div[class*="summary"]').text().trim();
-      let finalImage = image;
-      if (image.startsWith("/")) finalImage = DOMAIN + image;
+      let image = $2('img[alt="' + title + '"]').attr("src") || $2("img").first().attr("src") || "";
+      if (image.startsWith("/")) image = DOMAIN + image;
+      const desc = $2("p.description, .summary").text().trim();
+      let status = "Ongoing";
+      if ($2('*:contains("Completed"), *:contains("Ended")').length > 0) status = "Completed";
       return App.createSourceManga({
         id: mangaId,
         mangaInfo: App.createMangaInfo({
           titles: [title],
-          image: finalImage,
-          status: "Ongoing",
+          image,
+          status,
           desc
         })
       });
     }
     async getChapters(mangaId) {
       const request = App.createRequest({
-        url: `${DOMAIN}/api/series/${mangaId}/books`,
+        url: `${DOMAIN}/api/series/${mangaId}/chapters?page=1&perPage=1000`,
+        // On tente de tout récupérer
         method: "GET",
         headers: COMMON_HEADERS
-        // Ajout manuel des headers
       });
       const response = await this.requestManager.schedule(request, 1);
       const chapters = [];
       try {
         const json = JSON.parse(response.data ?? "{}");
-        const list = Array.isArray(json) ? json : json.data || json.books || [];
+        const list = Array.isArray(json) ? json : json.data || json.chapters || [];
         for (const item of list) {
           chapters.push(App.createChapter({
-            id: item.id,
-            chapNum: Number(item.chapterNumber || item.number || 0),
-            name: item.title || item.name || `Chapter ${item.number}`,
+            id: String(item.id),
+            // ID du chapitre
+            chapNum: Number(item.number || item.sequenceNumber || 0),
+            name: item.title || `Chapter ${item.number}`,
             langCode: "en",
             time: item.createdAt ? new Date(item.createdAt) : /* @__PURE__ */ new Date()
           }));
         }
       } catch (e) {
-        console.log(`Erreur chargement chapitres pour ${mangaId}`);
+        console.log(`Erreur API chapitres, tentative HTML...`);
       }
       return chapters;
     }
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
-        url: `${DOMAIN}/api/books/${chapterId}/pages`,
+        url: `${DOMAIN}/api/chapters/${chapterId}/pages`,
+        // URL probable pour les pages
         method: "GET",
         headers: COMMON_HEADERS
-        // Ajout manuel des headers
       });
       const response = await this.requestManager.schedule(request, 1);
       let pages = [];
       try {
         const json = JSON.parse(response.data ?? "{}");
         const list = Array.isArray(json) ? json : json.pages || json.data || [];
-        pages = list.map(
-          (img) => typeof img === "string" ? img.startsWith("http") ? img : DOMAIN + img : img.url || img.src
-        );
+        pages = list.map((img) => {
+          const url = typeof img === "string" ? img : img.url || img.src;
+          return url.startsWith("http") ? url : DOMAIN + url;
+        });
       } catch (e) {
-        throw new Error(`Erreur chargement pages chapitre ${chapterId}`);
+        throw new Error(`Erreur pages`);
       }
       return App.createChapterDetails({
         id: chapterId,
@@ -15039,27 +15068,27 @@ var _Sources = (() => {
       });
     }
     async getSearchResults(query, metadata) {
-      const url = `${DOMAIN}/search?q=${encodeURIComponent(query.title ?? "")}`;
       const request = App.createRequest({
-        url,
+        url: `${DOMAIN}/api/series/search?q=${encodeURIComponent(query.title ?? "")}`,
         method: "GET",
         headers: COMMON_HEADERS
-        // Ajout manuel des headers
       });
       const response = await this.requestManager.schedule(request, 1);
-      const html3 = response.data ?? "";
-      const rawData = this.parseNextJsData(html3);
       const tiles = [];
-      for (const item of rawData) {
-        if (!item.id || !item.name) continue;
-        let img = item.thumbnail || "";
-        if (img && !img.startsWith("http")) img = DOMAIN + img;
-        tiles.push(App.createPartialSourceManga({
-          mangaId: item.id,
-          title: item.name,
-          image: img,
-          subtitle: void 0
-        }));
+      try {
+        const json = JSON.parse(response.data ?? "{}");
+        const list = json.data || json.series || [];
+        for (const item of list) {
+          let img = item.thumbnail || item.cover || "";
+          if (img && !img.startsWith("http")) img = DOMAIN + img;
+          tiles.push(App.createPartialSourceManga({
+            mangaId: String(item.id),
+            title: item.title || item.name,
+            image: img,
+            subtitle: void 0
+          }));
+        }
+      } catch (e) {
       }
       return App.createPagedResults({ results: tiles });
     }
@@ -15067,25 +15096,37 @@ var _Sources = (() => {
       const section = App.createHomeSection({ id: "latest", title: "Latest Updates", containsMoreItems: true, type: "singleRowNormal" });
       sectionCallback(section);
       const request = App.createRequest({
-        url: `${DOMAIN}/search?sort=created_at,desc`,
+        // Cette URL est souvent celle utilisée par le frontend pour peupler la liste
+        url: `${DOMAIN}/api/series/latest`,
+        // Ou /api/series?sort=newest
         method: "GET",
         headers: COMMON_HEADERS
-        // Ajout manuel des headers
       });
       const response = await this.requestManager.schedule(request, 1);
-      const html3 = response.data ?? "";
-      const rawData = this.parseNextJsData(html3);
       const mangaList = [];
-      for (const item of rawData) {
-        if (!item.id || !item.name) continue;
-        let img = item.thumbnail || item.cover || "";
-        if (img && !img.startsWith("http")) img = DOMAIN + img;
-        mangaList.push(App.createPartialSourceManga({
-          mangaId: item.id,
-          title: item.name,
-          image: img,
-          subtitle: void 0
-        }));
+      try {
+        const json = JSON.parse(response.data ?? "{}");
+        const list = json.data || json.series || [];
+        for (const item of list) {
+          let img = item.thumbnail || item.cover || "";
+          if (img && !img.startsWith("http")) img = DOMAIN + img;
+          mangaList.push(App.createPartialSourceManga({
+            mangaId: String(item.id),
+            title: item.title || item.name,
+            image: img,
+            subtitle: void 0
+          }));
+        }
+      } catch (e) {
+        const foundItems = this.parseNextJsData(response.data ?? "");
+        for (const item of foundItems) {
+          mangaList.push(App.createPartialSourceManga({
+            mangaId: item.id,
+            title: item.name,
+            image: item.thumbnail,
+            subtitle: void 0
+          }));
+        }
       }
       section.items = mangaList;
       sectionCallback(section);
