@@ -22,9 +22,9 @@ const COMMON_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-export const KaganeInfo: SourceInfo = {
+export const KaganeComicInfo: SourceInfo = {
     version: '1.0.1',
-    name: 'Kagane',
+    name: 'KaganeComic',
     icon: 'icon.png',
     author: 'Toi',
     authorWebsite: 'https://github.com/ruanadia',
@@ -33,7 +33,7 @@ export const KaganeInfo: SourceInfo = {
     websiteBaseURL: DOMAIN
 }
 
-export class Kagane extends Source {
+export class KaganeComic extends Source {
     // Correction : On enlève l'intercepteur ici pour éviter l'erreur de type
     requestManager = App.createRequestManager({
         requestsPerSecond: 3,
