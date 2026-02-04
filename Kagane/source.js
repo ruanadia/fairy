@@ -736,8 +736,8 @@ var _Sources = (() => {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
   var KaganeInfo = {
-    version: "1.2.0",
-    // 🚀 GRAND SAUT DE VERSION
+    version: "1.2.2",
+    // ⬆️ On monte la version pour être sûr
     name: "Kagane",
     icon: "icon.png",
     author: "Toi",
@@ -754,18 +754,17 @@ var _Sources = (() => {
         requestTimeout: 15e3
       });
     }
-    // --- APPROCHE CLASSIQUE (STYLE FAIRYSCANS) ---
-    // On déclare la méthode exactement comme dans la définition de type de Paperback
+    // --- SECTION POPULAR ---
     async getHomePageSections(sectionCallback) {
       const section = App.createHomeSection({
-        id: "latest",
-        title: "Latest Updates",
+        id: "popular",
+        title: "Popular Manga",
         containsMoreItems: true,
         type: "singleRowNormal"
       });
       sectionCallback(section);
       const request = App.createRequest({
-        url: `${API_URL}/series?page=1&take=20&sort=last_modified&order=desc`,
+        url: `${API_URL}/series?sort=views&order=desc&page=1&take=20`,
         method: "GET",
         headers: COMMON_HEADERS
       });
@@ -778,13 +777,16 @@ var _Sources = (() => {
           else if (json.data && Array.isArray(json.data)) items = json.data;
           else if (json.series && Array.isArray(json.series)) items = json.series;
         } catch (e) {
+          console.log(`JSON Parse Error: ${e}`);
         }
         const mangaList = [];
         for (const item of items) {
-          if (!item.id || !item.title && !item.name) continue;
+          if (!item.id) continue;
           let image = item.thumbnail || item.cover || "";
           if (image && !image.startsWith("http")) {
             image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+          } else if (!image) {
+            image = "https://kagane.org/favicon.ico";
           }
           mangaList.push(App.createPartialSourceManga({
             mangaId: String(item.id),
@@ -800,6 +802,7 @@ var _Sources = (() => {
         sectionCallback(section);
       }
     }
+    // --- DETAILS ---
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
         url: `${API_URL}/series/${mangaId}`,
@@ -820,10 +823,12 @@ var _Sources = (() => {
           image,
           status: "Ongoing",
           desc: data.summary || data.description || "",
+          artist: data.authors ? data.authors.join(", ") : "",
           tags: []
         })
       });
     }
+    // --- CHAPITRES ---
     async getChapters(mangaId) {
       const request = App.createRequest({
         url: `${API_URL}/series/${mangaId}`,
@@ -837,14 +842,15 @@ var _Sources = (() => {
       for (const item of list) {
         chapters.push(App.createChapter({
           id: String(item.id),
-          chapNum: Number(item.chapterNumber || 0),
-          name: item.title || `Chapter ${item.chapterNumber}`,
+          chapNum: Number(item.chapterNumber || item.number || 0),
+          name: item.title || `Chapter ${item.number}`,
           langCode: "en",
           time: /* @__PURE__ */ new Date()
         }));
       }
       return chapters;
     }
+    // --- IMAGES ---
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
         url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
@@ -862,6 +868,7 @@ var _Sources = (() => {
         pages
       });
     }
+    // --- RECHERCHE ---
     async getSearchResults(query, metadata) {
       const request = App.createRequest({
         url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? "")}`,
