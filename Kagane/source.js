@@ -509,14 +509,14 @@ var _Sources = (() => {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.BadgeColor = void 0;
-      var BadgeColor;
-      (function(BadgeColor2) {
-        BadgeColor2["BLUE"] = "default";
-        BadgeColor2["GREEN"] = "success";
-        BadgeColor2["GREY"] = "info";
-        BadgeColor2["YELLOW"] = "warning";
-        BadgeColor2["RED"] = "danger";
-      })(BadgeColor = exports.BadgeColor || (exports.BadgeColor = {}));
+      var BadgeColor2;
+      (function(BadgeColor3) {
+        BadgeColor3["BLUE"] = "default";
+        BadgeColor3["GREEN"] = "success";
+        BadgeColor3["GREY"] = "info";
+        BadgeColor3["YELLOW"] = "warning";
+        BadgeColor3["RED"] = "danger";
+      })(BadgeColor2 = exports.BadgeColor || (exports.BadgeColor = {}));
     }
   });
 
@@ -613,15 +613,15 @@ var _Sources = (() => {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.ContentRating = exports.SourceIntents = void 0;
-      var SourceIntents;
-      (function(SourceIntents2) {
-        SourceIntents2[SourceIntents2["MANGA_CHAPTERS"] = 1] = "MANGA_CHAPTERS";
-        SourceIntents2[SourceIntents2["MANGA_TRACKING"] = 2] = "MANGA_TRACKING";
-        SourceIntents2[SourceIntents2["HOMEPAGE_SECTIONS"] = 4] = "HOMEPAGE_SECTIONS";
-        SourceIntents2[SourceIntents2["COLLECTION_MANAGEMENT"] = 8] = "COLLECTION_MANAGEMENT";
-        SourceIntents2[SourceIntents2["CLOUDFLARE_BYPASS_REQUIRED"] = 16] = "CLOUDFLARE_BYPASS_REQUIRED";
-        SourceIntents2[SourceIntents2["SETTINGS_UI"] = 32] = "SETTINGS_UI";
-      })(SourceIntents = exports.SourceIntents || (exports.SourceIntents = {}));
+      var SourceIntents2;
+      (function(SourceIntents3) {
+        SourceIntents3[SourceIntents3["MANGA_CHAPTERS"] = 1] = "MANGA_CHAPTERS";
+        SourceIntents3[SourceIntents3["MANGA_TRACKING"] = 2] = "MANGA_TRACKING";
+        SourceIntents3[SourceIntents3["HOMEPAGE_SECTIONS"] = 4] = "HOMEPAGE_SECTIONS";
+        SourceIntents3[SourceIntents3["COLLECTION_MANAGEMENT"] = 8] = "COLLECTION_MANAGEMENT";
+        SourceIntents3[SourceIntents3["CLOUDFLARE_BYPASS_REQUIRED"] = 16] = "CLOUDFLARE_BYPASS_REQUIRED";
+        SourceIntents3[SourceIntents3["SETTINGS_UI"] = 32] = "SETTINGS_UI";
+      })(SourceIntents2 = exports.SourceIntents || (exports.SourceIntents = {}));
       var ContentRating2;
       (function(ContentRating3) {
         ContentRating3["EVERYONE"] = "EVERYONE";
@@ -637,13 +637,13 @@ var _Sources = (() => {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.HomeSectionType = void 0;
-      var HomeSectionType;
-      (function(HomeSectionType2) {
-        HomeSectionType2["singleRowNormal"] = "singleRowNormal";
-        HomeSectionType2["singleRowLarge"] = "singleRowLarge";
-        HomeSectionType2["doubleRow"] = "doubleRow";
-        HomeSectionType2["featured"] = "featured";
-      })(HomeSectionType = exports.HomeSectionType || (exports.HomeSectionType = {}));
+      var HomeSectionType2;
+      (function(HomeSectionType3) {
+        HomeSectionType3["singleRowNormal"] = "singleRowNormal";
+        HomeSectionType3["singleRowLarge"] = "singleRowLarge";
+        HomeSectionType3["doubleRow"] = "doubleRow";
+        HomeSectionType3["featured"] = "featured";
+      })(HomeSectionType2 = exports.HomeSectionType || (exports.HomeSectionType = {}));
     }
   });
 
@@ -728,186 +728,243 @@ var _Sources = (() => {
     KaganeInfo: () => KaganeInfo
   });
   var import_types = __toESM(require_lib());
-  var API_URL = "https://api.kagane.org/api/v1";
+  var API_BASE = "https://api.kagane.org/api/v1";
   var DOMAIN = "https://kagane.org";
-  var COMMON_HEADERS = {
-    "Referer": `${DOMAIN}/`,
-    "Origin": DOMAIN,
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-  };
   var KaganeInfo = {
-    version: "1.2.5",
-    // ⬆️ Nouvelle version
+    version: "1.3.0",
+    // 🚀 Version ComixTo Style
     name: "Kagane",
     icon: "icon.png",
     author: "Toi",
     authorWebsite: "https://github.com/ruanadia",
-    description: "Extension Scrapper Brut pour Kagane.org",
+    description: "Extension Kagane (Architecture ComixTo)",
     contentRating: import_types.ContentRating.MATURE,
-    websiteBaseURL: DOMAIN
+    websiteBaseURL: DOMAIN,
+    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS
   };
   var Kagane = class extends import_types.Source {
     constructor() {
       super(...arguments);
+      // State Manager comme ComixTo
+      this.stateManager = App.createSourceStateManager();
+      // Request Manager avec Interceptor (C'est le secret de ComixTo)
       this.requestManager = App.createRequestManager({
-        requestsPerSecond: 3,
-        requestTimeout: 15e3
-      });
-    }
-    // --- SCANNER BRUT (La solution ultime) ---
-    // Cette fonction cherche des objets JSON directement dans le texte de la page
-    extractMangaFromText(text) {
-      const items = [];
-      const uniqueIds = /* @__PURE__ */ new Set();
-      const regexGlobal = /{[^{}]*"id"\s*:\s*"(.*?)"[^{}]*"title"\s*:\s*"(.*?)"[^{}]*"thumbnail"\s*:\s*"(.*?)"/g;
-      const cleanText = text.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-      let match;
-      while ((match = regexGlobal.exec(cleanText)) !== null) {
-        const id = match[1];
-        const title = match[2];
-        const thumb = match[3];
-        if (id && title && !uniqueIds.has(id)) {
-          uniqueIds.add(id);
-          items.push({ id, title, thumbnail: thumb });
-        }
-      }
-      if (items.length === 0) {
-        const uuidRegex = /"id":"([A-Za-z0-9]{20,})"/g;
-        while ((match = uuidRegex.exec(cleanText)) !== null) {
-          const id = match[1];
-          if (uniqueIds.has(id)) continue;
-          const sub = cleanText.substring(match.index, match.index + 500);
-          const titleMatch = sub.match(/"(title|name)"\s*:\s*"(.*?)"/);
-          const imgMatch = sub.match(/"(thumbnail|cover|image)"\s*:\s*"(.*?)"/);
-          if (titleMatch && imgMatch) {
-            uniqueIds.add(id);
-            items.push({ id, title: titleMatch[2], thumbnail: imgMatch[2] });
+        requestsPerSecond: 4,
+        requestTimeout: 15e3,
+        interceptor: {
+          interceptRequest: async (request) => {
+            request.headers = {
+              ...request.headers ?? {},
+              Referer: `${DOMAIN}/`,
+              Origin: DOMAIN,
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            };
+            return request;
+          },
+          interceptResponse: async (response) => {
+            return response;
           }
         }
-      }
-      return items;
-    }
-    async getHomePageSections(sectionCallback) {
-      const section = App.createHomeSection({
-        id: "popular",
-        title: "Popular Manga",
-        containsMoreItems: true,
-        type: "singleRowNormal"
       });
-      sectionCallback(section);
-      const request = App.createRequest({
-        url: `${DOMAIN}/search?sort=views,desc`,
-        method: "GET",
-        headers: COMMON_HEADERS
-      });
-      try {
-        const response = await this.requestManager.schedule(request, 1);
-        const html = response.data ?? "";
-        const items = this.extractMangaFromText(html);
-        const mangaList = [];
-        for (const item of items) {
-          let image = item.thumbnail || "";
-          if (image && !image.startsWith("http")) {
-            image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
-          }
-          if (!image) image = "https://kagane.org/favicon.ico";
-          mangaList.push(App.createPartialSourceManga({
-            mangaId: item.id,
-            title: item.title,
-            image,
-            subtitle: void 0
-          }));
-        }
-        section.items = mangaList;
-        sectionCallback(section);
-      } catch (e) {
-        console.log(`Erreur Home: ${e}`);
-        sectionCallback(section);
-      }
     }
+    // --- PARSER INTERNE (Adapté de Parser.ts) ---
+    // Helper pour nettoyer les images Kagane/Next.js
+    getImage(item) {
+      let image = item.thumbnail || item.cover || item.image || "";
+      if (image && !image.startsWith("http")) {
+        return `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
+      }
+      return image || "https://kagane.org/favicon.ico";
+    }
+    // --- MANGA DETAILS ---
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
-        url: `${API_URL}/series/${mangaId}`,
-        method: "GET",
-        headers: COMMON_HEADERS
+        url: `${API_BASE}/series/${mangaId}`,
+        method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
       const json = JSON.parse(response.data ?? "{}");
       const data = json.data || json;
-      let image = data.thumbnail || "";
-      if (image && !image.startsWith("http")) {
-        image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
-      }
       return App.createSourceManga({
         id: mangaId,
         mangaInfo: App.createMangaInfo({
           titles: [data.title || data.name || "Unknown"],
-          image,
-          status: "Ongoing",
-          desc: data.summary || data.description || "",
-          artist: data.authors ? data.authors.join(", ") : "",
-          tags: []
+          image: this.getImage(data),
+          status: data.status === "ONGOING" ? "Ongoing" : "Completed",
+          desc: data.summary || data.description || "No description",
+          author: data.authors ? data.authors.join(", ") : "",
+          artist: data.artists ? data.artists.join(", ") : ""
         })
       });
     }
+    // --- CHAPTERS ---
     async getChapters(mangaId) {
       const request = App.createRequest({
-        url: `${API_URL}/series/${mangaId}`,
-        method: "GET",
-        headers: COMMON_HEADERS
+        url: `${API_BASE}/series/${mangaId}`,
+        method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
       const json = JSON.parse(response.data ?? "{}");
+      const data = json.data || json;
+      const rawChapters = data.books || data.chapters || [];
       const chapters = [];
-      const list = json.books || json.chapters || json.data?.books || [];
-      for (const item of list) {
-        chapters.push(App.createChapter({
-          id: String(item.id),
-          chapNum: Number(item.chapterNumber || item.number || 0),
-          name: item.title || `Chapter ${item.number}`,
-          langCode: "en",
-          time: /* @__PURE__ */ new Date()
-        }));
+      for (const chap of rawChapters) {
+        chapters.push(
+          App.createChapter({
+            id: String(chap.id),
+            chapNum: Number(chap.chapterNumber || chap.number || chap.sequenceNumber || 0),
+            name: chap.title || chap.name || `Chapter ${chap.chapterNumber}`,
+            langCode: "en",
+            time: chap.createdAt ? new Date(chap.createdAt) : /* @__PURE__ */ new Date()
+          })
+        );
       }
       return chapters;
     }
+    // --- CHAPTER IMAGES ---
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
-        url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
-        method: "GET",
-        headers: COMMON_HEADERS
+        url: `${API_BASE}/books/${mangaId}/file/${chapterId}`,
+        method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
       const json = JSON.parse(response.data ?? "{}");
       let pages = [];
-      const list = Array.isArray(json) ? json : json.images || json.data || [];
-      pages = list.map((x) => typeof x === "string" ? x : x.url);
+      if (Array.isArray(json)) {
+        pages = json.map((x) => typeof x === "string" ? x : x.url);
+      } else if (json.images && Array.isArray(json.images)) {
+        pages = json.images.map((x) => x.url);
+      } else if (json.data && Array.isArray(json.data)) {
+        pages = json.data.map((x) => x.url);
+      }
       return App.createChapterDetails({
         id: chapterId,
         mangaId,
         pages
       });
     }
-    async getSearchResults(query, metadata) {
-      const request = App.createRequest({
-        url: `${DOMAIN}/search?q=${encodeURIComponent(query.title ?? "")}`,
-        method: "GET",
-        headers: COMMON_HEADERS
-      });
-      const response = await this.requestManager.schedule(request, 1);
-      const items = this.extractMangaFromText(response.data ?? "");
-      const tiles = [];
-      for (const item of items) {
-        let image = item.thumbnail || "";
-        if (image && !image.startsWith("http")) image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`;
-        tiles.push(App.createPartialSourceManga({
-          mangaId: item.id,
-          title: item.title,
-          image,
-          subtitle: void 0
-        }));
+    // --- HOME PAGE (Méthode ComixTo : fetchHomeData helper) ---
+    async getHomePageSections(sectionCallback) {
+      const sections = [
+        App.createHomeSection({
+          id: "popular",
+          title: "Popular (Most Views)",
+          containsMoreItems: true,
+          type: import_types.HomeSectionType.singleRowNormal
+        }),
+        App.createHomeSection({
+          id: "latest",
+          title: "Latest Updates",
+          containsMoreItems: true,
+          type: import_types.HomeSectionType.singleRowNormal
+        })
+      ];
+      const promises = [];
+      promises.push(
+        this.fetchHomeData(
+          `${API_BASE}/series?sort=views&order=desc&page=1&take=20`,
+          sections[0],
+          sectionCallback
+        )
+      );
+      promises.push(
+        this.fetchHomeData(
+          `${API_BASE}/series?sort=last_modified&order=desc&page=1&take=20`,
+          sections[1],
+          sectionCallback
+        )
+      );
+      await Promise.all(promises);
+    }
+    // Helper inspiré de ComixTo pour charger une section
+    async fetchHomeData(url, section, callback) {
+      const request = App.createRequest({ url, method: "GET" });
+      try {
+        const response = await this.requestManager.schedule(request, 1);
+        const json = JSON.parse(response.data ?? "{}");
+        let items = [];
+        if (Array.isArray(json)) items = json;
+        else if (json.data && Array.isArray(json.data)) items = json.data;
+        else if (json.series && Array.isArray(json.series)) items = json.series;
+        const mangaList = [];
+        for (const item of items) {
+          if (!item.id) continue;
+          mangaList.push(
+            App.createPartialSourceManga({
+              mangaId: String(item.id),
+              image: this.getImage(item),
+              title: item.title || item.name || "Unknown",
+              subtitle: void 0
+            })
+          );
+        }
+        section.items = mangaList;
+      } catch (e) {
+        console.log(`Error fetching section ${section.id}: ${e}`);
+        section.items = [];
       }
-      return App.createPagedResults({ results: tiles });
+      callback(section);
+    }
+    // --- VIEW MORE (Pagination comme ComixTo) ---
+    async getViewMoreItems(homepageSectionId, metadata) {
+      const page = metadata?.page ?? 1;
+      let url = "";
+      switch (homepageSectionId) {
+        case "popular":
+          url = `${API_BASE}/series?sort=views&order=desc&page=${page}&take=20`;
+          break;
+        case "latest":
+          url = `${API_BASE}/series?sort=last_modified&order=desc&page=${page}&take=20`;
+          break;
+        default:
+          return App.createPagedResults({ results: [], metadata: void 0 });
+      }
+      const request = App.createRequest({ url, method: "GET" });
+      const response = await this.requestManager.schedule(request, 1);
+      const json = JSON.parse(response.data ?? "{}");
+      let items = [];
+      if (Array.isArray(json)) items = json;
+      else if (json.data && Array.isArray(json.data)) items = json.data;
+      const mangaList = [];
+      for (const item of items) {
+        mangaList.push(
+          App.createPartialSourceManga({
+            mangaId: String(item.id),
+            image: this.getImage(item),
+            title: item.title || item.name || "Unknown"
+          })
+        );
+      }
+      const hasNext = items.length > 0;
+      return App.createPagedResults({
+        results: mangaList,
+        metadata: hasNext ? { page: page + 1 } : void 0
+      });
+    }
+    // --- SEARCH (Comme ComixTo, sans les filtres avancés pour l'instant) ---
+    async getSearchResults(query, metadata) {
+      const page = metadata?.page ?? 1;
+      const url = `${API_BASE}/series?search=${encodeURIComponent(query.title ?? "")}&page=${page}&take=20`;
+      const request = App.createRequest({ url, method: "GET" });
+      const response = await this.requestManager.schedule(request, 1);
+      const json = JSON.parse(response.data ?? "{}");
+      let items = [];
+      if (Array.isArray(json)) items = json;
+      else if (json.data && Array.isArray(json.data)) items = json.data;
+      const mangaList = [];
+      for (const item of items) {
+        mangaList.push(
+          App.createPartialSourceManga({
+            mangaId: String(item.id),
+            image: this.getImage(item),
+            title: item.title || item.name || "Unknown"
+          })
+        );
+      }
+      return App.createPagedResults({
+        results: mangaList,
+        metadata: items.length > 0 ? { page: page + 1 } : void 0
+      });
     }
   };
   return __toCommonJS(Kagane_exports);
