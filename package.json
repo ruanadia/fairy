@@ -1,7 +1,7 @@
 {
   "name": "fairyscans-extension",
   "version": "1.0.8",
-  "repositoryName": "nad's fairyscans",
+  "repositoryName": "nad's extensions",
   "homepage": "https://ruanadia.github.io/fairy",
   "description": "Extension Paperback pour FairyScans",
   "main": "lib/index.js",
