@@ -1,25 +1,24 @@
 {
   "name": "fairyscans-extension",
-  "repositoryName": "nad's fairyscans",
-  "version": "1.0.1",
+  "version": "1.0.3",
+  "repositoryName": "Mes Extensions FairyScans",
+  "homepage": "https://ruanadia.github.io/fairy/bundles",
   "description": "Extension Paperback pour FairyScans",
   "main": "lib/index.js",
-"scripts": {
+  "scripts": {
     "build": "tsc",
-    "bundle": "GITHUB_REPOSITORY=ruanadia/fairy baseURL=https://ruanadia.github.io/fairy/bundles npx paperback bundle"
-
-  },
-  "homepage": "https://ruanadia.github.io/fairy/bundles", 
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ruanadia/fairy"
+    "bundle": "npx paperback bundle"
   },
   "dependencies": {
-    "@paperback/types": "^0.8.0-alpha.47",
-    "@paperback/toolchain": "^0.8.0-alpha.47",
+    "@paperback/types": "^0.8.7",
+    "@paperback/toolchain": "0.8.7",
     "cheerio": "1.0.0-rc.12"
   },
   "devDependencies": {
-    "typescript": "^4.3.2"
+    "typescript": "^5.4.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruanadia/fairy.git"
   }
 }
