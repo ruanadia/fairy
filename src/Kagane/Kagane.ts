@@ -22,7 +22,7 @@ const COMMON_HEADERS = {
 }
 
 export const KaganeInfo: SourceInfo = {
-    version: '1.2.0', // 🚀 GRAND SAUT DE VERSION
+    version: '1.2.2', // ⬆️ On monte la version pour être sûr
     name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
@@ -38,22 +38,22 @@ export class Kagane extends Source {
         requestTimeout: 15000,
     })
 
-    // --- APPROCHE CLASSIQUE (STYLE FAIRYSCANS) ---
-    // On déclare la méthode exactement comme dans la définition de type de Paperback
+    // --- SECTION POPULAR ---
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
         
-        // 1. Création section
+        // 1. On change le titre pour "Popular Manga"
         const section = App.createHomeSection({ 
-            id: 'latest', 
-            title: 'Latest Updates', 
+            id: 'popular', 
+            title: 'Popular Manga', 
             containsMoreItems: true, 
             type: 'singleRowNormal' 
         })
         sectionCallback(section)
 
-        // 2. Requête API
+        // 2. Requête API modifiée pour "Popular"
+        // On essaie le tri par "views" et on passe par "series" sans paramètres compliqués d'abord
         const request = App.createRequest({
-            url: `${API_URL}/series?page=1&take=20&sort=last_modified&order=desc`,
+            url: `${API_URL}/series?sort=views&order=desc&page=1&take=20`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
@@ -62,24 +62,29 @@ export class Kagane extends Source {
             const response = await this.requestManager.schedule(request, 1)
             let items: any[] = []
             
-            // Parsing sécurisé
             try {
                 const json = JSON.parse(response.data ?? '{}')
+                // Kagane peut renvoyer { data: [...] } ou directement [...]
                 if (Array.isArray(json)) items = json
                 else if (json.data && Array.isArray(json.data)) items = json.data
                 else if (json.series && Array.isArray(json.series)) items = json.series
             } catch (e) {
-                // Ignore JSON error
+                console.log(`JSON Parse Error: ${e}`)
             }
 
             const mangaList: any[] = []
             for (const item of items) {
-                // Vérification stricte des données
-                if (!item.id || (!item.title && !item.name)) continue
+                // Vérification stricte
+                if (!item.id) continue
 
+                // Gestion d'image renforcée
                 let image = item.thumbnail || item.cover || ''
                 if (image && !image.startsWith('http')) {
+                    // On utilise le proxy Next.js du site pour être sûr
                     image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
+                } else if (!image) {
+                    // Image par défaut si vide
+                    image = 'https://kagane.org/favicon.ico'
                 }
 
                 mangaList.push(App.createPartialSourceManga({
@@ -95,11 +100,11 @@ export class Kagane extends Source {
 
         } catch (e) {
             console.log(`Kagane Error: ${e}`)
-            // Important : on renvoie la section même vide pour dire "c'est fini"
             sectionCallback(section) 
         }
     }
 
+    // --- DETAILS ---
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         const request = App.createRequest({
             url: `${API_URL}/series/${mangaId}`,
@@ -123,11 +128,13 @@ export class Kagane extends Source {
                 image: image,
                 status: 'Ongoing',
                 desc: data.summary || data.description || '',
+                artist: data.authors ? data.authors.join(', ') : '',
                 tags: []
             })
         })
     }
 
+    // --- CHAPITRES ---
     async getChapters(mangaId: string): Promise<Chapter[]> {
         const request = App.createRequest({
             url: `${API_URL}/series/${mangaId}`,
@@ -138,13 +145,14 @@ export class Kagane extends Source {
         const response = await this.requestManager.schedule(request, 1)
         const json = JSON.parse(response.data ?? '{}')
         const chapters: Chapter[] = []
+        // On vérifie tous les endroits possibles où les chapitres peuvent se cacher
         const list = json.books || json.chapters || json.data?.books || []
 
         for (const item of list) {
             chapters.push(App.createChapter({
                 id: String(item.id),
-                chapNum: Number(item.chapterNumber || 0),
-                name: item.title || `Chapter ${item.chapterNumber}`,
+                chapNum: Number(item.chapterNumber || item.number || 0),
+                name: item.title || `Chapter ${item.number}`,
                 langCode: 'en',
                 time: new Date()
             }))
@@ -152,6 +160,7 @@ export class Kagane extends Source {
         return chapters
     }
 
+    // --- IMAGES ---
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
         const request = App.createRequest({
             url: `${API_URL}/books/${mangaId}/file/${chapterId}`,
@@ -173,6 +182,7 @@ export class Kagane extends Source {
         })
     }
 
+    // --- RECHERCHE ---
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const request = App.createRequest({
             url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? '')}`,
