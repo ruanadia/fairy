@@ -17,18 +17,18 @@ const API_URL = 'https://api.kagane.org/api/v1'
 const DOMAIN = 'https://kagane.org'
 
 const COMMON_HEADERS = {
-    'Referer': DOMAIN,
+    'Referer': `${DOMAIN}/`,
     'Origin': DOMAIN,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
 }
 
 export const KaganeInfo: SourceInfo = {
-    version: '1.2.4', // ⬆️ Nouvelle version
+    version: '1.2.5', // ⬆️ Nouvelle version
     name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
     authorWebsite: 'https://github.com/ruanadia',
-    description: 'Extension Multi-Sections pour Kagane.org',
+    description: 'Extension Scrapper Brut pour Kagane.org',
     contentRating: ContentRating.MATURE,
     websiteBaseURL: DOMAIN
 }
@@ -39,132 +39,113 @@ export class Kagane extends Source {
         requestTimeout: 15000,
     })
 
-    // --- SCANNER HTML AMÉLIORÉ ---
-    parseHtmlList(html: string): any[] {
-        const $ = cheerio.load(html)
+    // --- SCANNER BRUT (La solution ultime) ---
+    // Cette fonction cherche des objets JSON directement dans le texte de la page
+    extractMangaFromText(text: string): any[] {
         const items: any[] = []
+        const uniqueIds = new Set<string>()
+
+        // 1. On cherche des motifs JSON : {"id":"...","title":"...","thumbnail":"..."}
+        // Le regex cherche un ID suivi (plus loin) d'un titre, ou l'inverse
+        // C'est un peu "sale" mais ça marche sur les Next.js cryptés
         
-        // On cherche plus large : series, comic, ou juste des liens dans des "cards"
-        $('a[href*="/series/"], a[href*="/comic/"]').each((i, el) => {
-            const href = $(el).attr('href')
-            const id = href?.split('/').pop()
-            
-            // Titre : On cherche partout
-            const title = $(el).find('h3, h4, .title, span, p').first().text().trim() || $(el).attr('title') || $(el).text().trim()
-            
-            // Image : On cherche l'image la plus proche
-            let image = $(el).find('img').attr('src') || $(el).find('img').attr('srcset')?.split(' ')[0] || ''
-            
-            // Si pas d'image dans le lien, on regarde le parent (cas fréquent des "cards")
-            if (!image) {
-                image = $(el).closest('div').find('img').first().attr('src') || ''
-            }
+        // Regex pour capturer des objets ressemblant à des mangas
+        // On cherche des blocs qui contiennent "id":"..." et "thumbnail":"..."
+        const regexGlobal = /{[^{}]*"id"\s*:\s*"(.*?)"[^{}]*"title"\s*:\s*"(.*?)"[^{}]*"thumbnail"\s*:\s*"(.*?)"/g
+        
+        // On nettoie un peu le texte des backslashes qui polluent le JSON inliné
+        const cleanText = text.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
 
-            // Nettoyage URL Image
-            if (image) {
-                if (image.startsWith('/')) image = DOMAIN + image
-                if (image.includes('url=')) {
-                    const match = image.match(/url=(.*?)&/)
-                    if (match) image = decodeURIComponent(match[1])
-                    if (image.startsWith('/')) image = DOMAIN + image
-                }
-            } else {
-                image = 'https://kagane.org/favicon.ico' // Image par défaut
-            }
+        let match
+        while ((match = regexGlobal.exec(cleanText)) !== null) {
+            const id = match[1]
+            const title = match[2]
+            const thumb = match[3]
 
-            if (id && title && title.length < 100) { // Sécurité longueur titre
-                if (!items.find(x => x.id === id)) {
-                    items.push({ id, title, image })
-                }
+            if (id && title && !uniqueIds.has(id)) {
+                uniqueIds.add(id)
+                items.push({ id, title, thumbnail: thumb })
             }
-        })
+        }
+
+        // Si la méthode précise échoue, on tente une extraction plus large via Cheerio sur les scripts
+        if (items.length === 0) {
+           // On cherche tout ce qui ressemble à un ID UUID (ex: 37CI...)
+           const uuidRegex = /"id":"([A-Za-z0-9]{20,})"/g
+           while ((match = uuidRegex.exec(cleanText)) !== null) {
+                // Pour chaque ID trouvé, on essaie de trouver le titre juste après
+                const id = match[1]
+                if (uniqueIds.has(id)) continue
+
+                // On extrait un petit bout de texte autour de l'ID pour trouver le reste
+                const sub = cleanText.substring(match.index, match.index + 500)
+                const titleMatch = sub.match(/"(title|name)"\s*:\s*"(.*?)"/)
+                const imgMatch = sub.match(/"(thumbnail|cover|image)"\s*:\s*"(.*?)"/)
+
+                if (titleMatch && imgMatch) {
+                    uniqueIds.add(id)
+                    items.push({ id, title: titleMatch[2], thumbnail: imgMatch[2] })
+                }
+           }
+        }
+
         return items
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        // SECTION 1 : POPULAR
-        const sectionPopular = App.createHomeSection({ id: 'popular', title: 'Popular Manga', containsMoreItems: true, type: 'singleRowNormal' })
-        
-        // SECTION 2 : LATEST (Souvent plus fiable)
-        const sectionLatest = App.createHomeSection({ id: 'latest', title: 'Latest Updates', containsMoreItems: true, type: 'singleRowNormal' })
-        
-        sectionCallback(sectionPopular)
-        sectionCallback(sectionLatest)
-
-        // --- Remplissage Popular ---
-        // Essai API tri par 'views'
-        const requestPopular = App.createRequest({
-            url: `${API_URL}/series?sort=views&order=desc&page=1&take=10`,
-            method: 'GET',
-            headers: COMMON_HEADERS
+        // Une seule section pour tester
+        const section = App.createHomeSection({ 
+            id: 'popular', 
+            title: 'Popular Manga', 
+            containsMoreItems: true, 
+            type: 'singleRowNormal' 
         })
-        
-        this.fetchSectionData(requestPopular, sectionPopular, sectionCallback)
+        sectionCallback(section)
 
-        // --- Remplissage Latest ---
-        // Essai API tri par 'last_modified' (Le plus sûr)
-        const requestLatest = App.createRequest({
-            url: `${API_URL}/series?sort=last_modified&order=desc&page=1&take=10`,
+        // On appelle directement la page de recherche qui contient le plus de données
+        const request = App.createRequest({
+            url: `${DOMAIN}/search?sort=views,desc`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
 
-        this.fetchSectionData(requestLatest, sectionLatest, sectionCallback)
-    }
-
-    // Fonction d'aide pour éviter de répéter le code
-    async fetchSectionData(request: Request, section: HomeSection, callback: (section: HomeSection) => void) {
         try {
             const response = await this.requestManager.schedule(request, 1)
-            let items: any[] = []
+            const html = response.data ?? ''
             
-            try {
-                const json = JSON.parse(response.data ?? '{}')
-                if (Array.isArray(json)) items = json
-                else if (json.data && Array.isArray(json.data)) items = json.data
-                else if (json.series && Array.isArray(json.series)) items = json.series
-            } catch (e) {}
-
-            // FALLBACK HTML si l'API est vide
-            if (items.length === 0) {
-                const htmlRequest = App.createRequest({
-                    url: `${DOMAIN}/search?sort=created_at,desc`, // Page de recherche standard
-                    method: 'GET',
-                    headers: COMMON_HEADERS
-                })
-                const htmlResponse = await this.requestManager.schedule(htmlRequest, 1)
-                items = this.parseHtmlList(htmlResponse.data ?? '')
-            }
-
+            // On utilise notre scanner brut
+            const items = this.extractMangaFromText(html)
+            
             const mangaList: any[] = []
             for (const item of items) {
-                if (!item.id) continue
-
-                let image = item.thumbnail || item.cover || item.image || ''
+                let image = item.thumbnail || ''
                 if (image && !image.startsWith('http')) {
                     image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
-                } else if (!image) {
-                     image = 'https://kagane.org/favicon.ico'
                 }
+                
+                // Sécurité image
+                if (!image) image = 'https://kagane.org/favicon.ico'
 
                 mangaList.push(App.createPartialSourceManga({
-                    mangaId: String(item.id),
-                    title: item.title || item.name || 'Unknown',
+                    mangaId: item.id,
+                    title: item.title,
                     image: image,
                     subtitle: undefined
                 }))
             }
-            
+
             section.items = mangaList
-            callback(section)
+            sectionCallback(section)
 
         } catch (e) {
-            console.log(`Erreur Section ${section.id}: ${e}`)
-            callback(section)
+            console.log(`Erreur Home: ${e}`)
+            sectionCallback(section)
         }
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        // Pour les détails, on passe par l'API car c'est plus stable pour un item précis
+        // Si l'API échoue, on pourrait parser le HTML, mais testons l'API d'abord
         const request = App.createRequest({
             url: `${API_URL}/series/${mangaId}`,
             method: 'GET',
@@ -239,27 +220,24 @@ export class Kagane extends Source {
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+        // Recherche : On tente le scan HTML aussi car l'API semble bloquée
         const request = App.createRequest({
-            url: `${API_URL}/series?search=${encodeURIComponent(query.title ?? '')}`,
+            url: `${DOMAIN}/search?q=${encodeURIComponent(query.title ?? '')}`,
             method: 'GET',
             headers: COMMON_HEADERS
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        let items: any[] = []
-        try {
-            const json = JSON.parse(response.data ?? '{}')
-            items = json.data || json.series || []
-        } catch(e) {}
+        const items = this.extractMangaFromText(response.data ?? '')
 
         const tiles: any[] = []
         for (const item of items) {
             let image = item.thumbnail || ''
-            if (image && !image.startsWith('http')) image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}`
+            if (image && !image.startsWith('http')) image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
             
             tiles.push(App.createPartialSourceManga({
-                mangaId: String(item.id),
-                title: item.title || item.name,
+                mangaId: item.id,
+                title: item.title,
                 image: image,
                 subtitle: undefined
             }))
