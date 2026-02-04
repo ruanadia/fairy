@@ -22,7 +22,7 @@ const COMMON_HEADERS = {
 }
 
 export const KaganeInfo: SourceInfo = {
-    version: '1.0.9',
+    version: '1.1.0', // 👈 ON PASSE EN 1.1.0 POUR FORCER L'UPDATE
     name: 'Kagane',
     icon: 'icon.png',
     author: 'Toi',
@@ -38,11 +38,8 @@ export class Kagane extends Source {
         requestTimeout: 15000,
     })
 
-    // --- CORRECTION MAJEURE ICI ---
-    // On s'assure que la fonction est bien déclarée comme async et retourne Promise<void>
-    // C'est exactement le format standard
-getHomePageSections = async (sectionCallback: (section: HomeSection) => void): Promise<void> => {        
-        // 1. On crée la section VIDE d'abord (pour que l'UI réagisse vite)
+    // 👇 RETOUR A LA SYNTAXE STANDARD (Plus fiable pour l'héritage Paperback)
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
         const section = App.createHomeSection({ 
             id: 'latest', 
             title: 'Latest Updates', 
@@ -50,10 +47,8 @@ getHomePageSections = async (sectionCallback: (section: HomeSection) => void): P
             type: 'singleRowNormal' 
         })
         
-        // 2. On l'affiche tout de suite
         sectionCallback(section)
 
-        // 3. Ensuite on va chercher les données
         const request = App.createRequest({
             url: `${API_URL}/series?page=1&take=20&sort=last_modified&order=desc`,
             method: 'GET',
@@ -65,7 +60,6 @@ getHomePageSections = async (sectionCallback: (section: HomeSection) => void): P
             let items: any[] = []
             const json = JSON.parse(response.data ?? '{}')
             
-            // Sécurité : on vérifie tous les formats possibles
             if (Array.isArray(json)) {
                 items = json
             } else if (json.data && Array.isArray(json.data)) {
@@ -81,7 +75,6 @@ getHomePageSections = async (sectionCallback: (section: HomeSection) => void): P
                     image = `${DOMAIN}/_next/image?url=${encodeURIComponent(image)}&w=384&q=75`
                 }
 
-                // On vérifie que l'ID existe bien avant d'ajouter
                 if (item.id) {
                     mangaList.push(App.createPartialSourceManga({
                         mangaId: String(item.id),
@@ -92,13 +85,11 @@ getHomePageSections = async (sectionCallback: (section: HomeSection) => void): P
                 }
             }
 
-            // 4. On met à jour la section avec les items trouvés
             section.items = mangaList
             sectionCallback(section)
 
         } catch (e) {
             console.log(`Erreur Home: ${e}`)
-            // En cas d'erreur, on renvoie la section vide pour ne pas crasher
             sectionCallback(section)
         }
     }
