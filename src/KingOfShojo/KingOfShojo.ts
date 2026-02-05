@@ -20,7 +20,7 @@ export const KingOfShojoInfo: SourceInfo = {
     name: 'KingOfShojo',
     icon: 'icon.png',
     author: 'Toi',
-    authorWebsite: 'https://github.com/ruanadia',
+    authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension pour lire KingOfShojo sur Paperback',
     contentRating: ContentRating.MATURE,
     websiteBaseURL: DOMAIN

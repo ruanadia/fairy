@@ -20,7 +20,7 @@ export const FairyScansInfo: SourceInfo = {
     name: 'FairyScans',
     icon: 'icon.png',
     author: 'Toi',
-    authorWebsite: 'https://github.com/ruanadia',
+    authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension Paperback pour FairyScans',
     contentRating: ContentRating.MATURE,
     websiteBaseURL: DOMAIN
