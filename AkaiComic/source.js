@@ -721,182 +721,139 @@ var _Sources = (() => {
     }
   });
 
-  // src/Kagane/Kagane.ts
-  var Kagane_exports = {};
-  __export(Kagane_exports, {
-    Kagane: () => Kagane,
-    KaganeInfo: () => KaganeInfo
+  // src/AkaiComic/AkaiComic.ts
+  var AkaiComic_exports = {};
+  __export(AkaiComic_exports, {
+    AkaiComic: () => AkaiComic,
+    AkaiComicInfo: () => AkaiComicInfo
   });
   var import_types = __toESM(require_lib());
-  var API_URL = "https://api.kagane.org/api/v1";
-  var BASE_URL = "https://kagane.org";
-  var KaganeInfo = {
+  var API_BASE = "https://akaicomic.org/api";
+  var DOMAIN = "https://akaicomic.org";
+  var AkaiComicInfo = {
     version: "1.0.1",
-    // J'ai monté la version
-    name: "Kagane",
+    name: "AkaiComic",
     icon: "icon.png",
-    author: "Nad",
+    author: "Toi",
     authorWebsite: "https://github.com/ruakaly",
-    description: "Extension pour Kagane.org",
+    description: "Extension API pour AkaiComic",
     contentRating: import_types.ContentRating.MATURE,
-    websiteBaseURL: BASE_URL,
-    sourceTags: []
+    websiteBaseURL: DOMAIN
   };
-  var Kagane = class extends import_types.Source {
+  var AkaiComic = class extends import_types.Source {
     constructor() {
       super(...arguments);
       this.requestManager = App.createRequestManager({
-        requestsPerSecond: 3,
-        requestTimeout: 15e3,
-        interceptor: {
-          interceptRequest: async (request) => {
-            request.headers = {
-              ...request.headers ?? {},
-              "Referer": BASE_URL,
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            };
-            return request;
-          },
-          interceptResponse: async (response) => {
-            return response;
-          }
-        }
+        requestsPerSecond: 4,
+        requestTimeout: 15e3
       });
     }
-    getMangaShareUrl(mangaId) {
-      return `${BASE_URL}/series/${mangaId}`;
-    }
-    // 1. DÉTAILS (Via API)
     async getMangaDetails(mangaId) {
       const request = App.createRequest({
-        url: `${API_URL}/series/${mangaId}`,
+        url: `${API_BASE}/manga/${mangaId}`,
         method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
-      const dataStr = response.data ?? "{}";
-      const json = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
-      const tags = [];
-      if (json.genres) {
-        tags.push(App.createTagSection({
-          id: "0",
-          label: "Genres",
-          tags: json.genres.map((g) => App.createTag({ id: g, label: g }))
-        }));
-      }
-      let status = "Ongoing";
-      if (json.status === "ENDED") status = "Completed";
+      const data = JSON.parse(response.data ?? "{}").manga;
       return App.createSourceManga({
         id: mangaId,
         mangaInfo: App.createMangaInfo({
-          titles: [json.name],
-          image: `${API_URL}/series/${mangaId}/thumbnail`,
-          status,
-          author: json.authors ? json.authors.join(", ") : "Unknown",
-          desc: json.summary ?? "",
-          tags
+          titles: [data.series_name],
+          image: data.cover_url ?? "",
+          status: data.status?.toLowerCase().includes("releasing") ? "Ongoing" : "Completed",
+          desc: data.description ?? "",
+          author: data.author,
+          artist: data.artist,
+          tags: [App.createTagSection({
+            id: "genres",
+            label: "genres",
+            tags: (data.genres?.split(",") ?? []).map((g) => App.createTag({ id: g.trim(), label: g.trim() }))
+          })]
         })
       });
     }
-    // 2. CHAPITRES (Via HTML + Regex)
     async getChapters(mangaId) {
       const request = App.createRequest({
-        url: `${BASE_URL}/series/${mangaId}`,
+        url: `${API_BASE}/manga/${mangaId}/chapters`,
         method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
-      const dataStr = response.data ?? "";
-      const regex = /\\"initialBooksData\\":(\[.*?\])(?:,\\"|})/;
-      const match = dataStr.match(regex);
+      const data = JSON.parse(response.data ?? "{}");
       const chapters = [];
-      if (match && match[1]) {
-        const cleanJson = match[1].replace(/\\"/g, '"');
-        try {
-          const data = JSON.parse(cleanJson);
-          for (const chapter of data) {
-            const chapterId = chapter.id;
-            const chapNum = chapter.metadata?.numberSort ?? 0;
-            const title = chapter.name ? chapter.name : `Episode ${chapNum}`;
-            const dateStr = chapter.metadata?.releaseDate;
-            chapters.push(App.createChapter({
-              id: chapterId,
-              name: title,
-              chapNum: Number(chapNum),
-              langCode: "en",
-              time: dateStr ? new Date(dateStr) : /* @__PURE__ */ new Date()
-            }));
-          }
-        } catch (e) {
-          console.log(`Erreur parsing chapitres: ${e}`);
-        }
+      for (const chap of data.chapters ?? []) {
+        chapters.push(App.createChapter({
+          id: chap.chapter_number.toString(),
+          chapNum: chap.chapter_number,
+          name: chap.title || `Chapter ${chap.chapter_number}`,
+          langCode: "en",
+          time: new Date(chap.created_at)
+        }));
       }
       return chapters;
     }
-    // 3. IMAGES (Via HTML + Regex)
     async getChapterDetails(mangaId, chapterId) {
       const request = App.createRequest({
-        url: `${BASE_URL}/series/${mangaId}/reader/${chapterId}`,
+        url: `${API_BASE}/manga/${mangaId}/chapter/${chapterId}/pages`,
         method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
-      const dataStr = response.data ?? "";
-      const pages = [];
-      const imageRegex = /(https?:\/\/[^"'\s\\]+\.(?:jpg|jpeg|png|webp))/g;
-      const matches = dataStr.match(imageRegex);
-      if (matches) {
-        const uniqueImages = [...new Set(matches)];
-        for (const img of uniqueImages) {
-          if (!img.includes("icon") && !img.includes("logo") && !img.includes("thumbnail")) {
-            pages.push(img);
-          }
-        }
-      }
+      const data = JSON.parse(response.data ?? "{}");
       return App.createChapterDetails({
         id: chapterId,
         mangaId,
-        pages
+        pages: data.pages ?? []
       });
     }
-    // 4. ACCUEIL (CORRIGÉ : Via HTML + Regex sur "ssrRecentlyAdded")
-    async getHomePageSections(sectionCallback) {
-      const section = App.createHomeSection({ id: "latest", title: "Latest Series", containsMoreItems: false, type: "singleRowNormal" });
-      sectionCallback(section);
+    async getSearchResults(query, metadata) {
+      const page = metadata?.page ?? 1;
+      const url = `${API_BASE}/manga/list?limit=20&page=${page}`;
       const request = App.createRequest({
-        url: BASE_URL,
+        url,
         method: "GET"
       });
       const response = await this.requestManager.schedule(request, 1);
-      const dataStr = response.data ?? "";
-      const regex = /\\"ssrRecentlyAdded\\":\{\\"data\\":(\[.*?\])(?:,\\"|})/;
-      const match = dataStr.match(regex);
-      if (match && match[1]) {
-        const cleanJson = match[1].replace(/\\"/g, '"');
-        try {
-          const data = JSON.parse(cleanJson);
-          const tiles = [];
-          for (const item of data) {
-            tiles.push(App.createPartialSourceManga({
-              title: item.name,
-              image: `${API_URL}/series/${item.id}/thumbnail`,
-              mangaId: item.id,
-              subtitle: void 0
-            }));
-          }
-          section.items = tiles;
-          sectionCallback(section);
-        } catch (e) {
-          console.log(`Erreur parsing Home: ${e}`);
-        }
+      const data = JSON.parse(response.data ?? "{}");
+      const results = [];
+      for (const manga of data.manga ?? []) {
+        results.push(App.createPartialSourceManga({
+          mangaId: manga.id,
+          image: manga.cover_url,
+          title: manga.series_name,
+          subtitle: manga.type
+        }));
       }
-    }
-    // 5. RECHERCHE (Placeholder basique pour l'instant)
-    // L'API de recherche devinée risque de ne pas marcher, mais on laisse le code propre.
-    async getSearchResults(query, metadata) {
       return App.createPagedResults({
-        results: [],
-        metadata: {}
+        results,
+        metadata: { page: page + 1 }
+      });
+    }
+    async getHomePageSections(sectionCallback) {
+      const sectionRecent = App.createHomeSection({ id: "recent", title: "Recently Updated", containsMoreItems: true, type: "singleRowNormal" });
+      const sectionTop = App.createHomeSection({ id: "top", title: "Top Series", containsMoreItems: false, type: "singleRowLarge" });
+      sectionCallback(sectionRecent);
+      sectionCallback(sectionTop);
+      const recentReq = App.createRequest({ url: `${API_BASE}/manga/recent?limit=10`, method: "GET" });
+      this.requestManager.schedule(recentReq, 1).then((res) => {
+        const data = JSON.parse(res.data ?? "{}");
+        sectionRecent.items = (data.manga ?? []).map((m) => App.createPartialSourceManga({
+          mangaId: m.id,
+          image: m.cover_url,
+          title: m.series_name
+        }));
+        sectionCallback(sectionRecent);
+      });
+      const topReq = App.createRequest({ url: `${API_BASE}/series/top?limit=6`, method: "GET" });
+      this.requestManager.schedule(topReq, 1).then((res) => {
+        const data = JSON.parse(res.data ?? "{}");
+        sectionTop.items = (data.series ?? []).map((m) => App.createPartialSourceManga({
+          mangaId: m.id,
+          image: m.cover_url,
+          title: m.series_name
+        }));
+        sectionCallback(sectionTop);
       });
     }
   };
-  return __toCommonJS(Kagane_exports);
+  return __toCommonJS(AkaiComic_exports);
 })();
 this.Sources = _Sources; if (typeof exports === 'object' && typeof module !== 'undefined') {module.exports.Sources = this.Sources;}
