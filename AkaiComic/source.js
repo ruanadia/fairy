@@ -798,10 +798,14 @@ var _Sources = (() => {
       });
       const response = await this.requestManager.schedule(request, 1);
       const data = JSON.parse(response.data ?? "{}");
+      const pages = (data.pages ?? []).map((page) => {
+        if (page.startsWith("http")) return page;
+        return `${DOMAIN}${page.startsWith("/") ? "" : "/"}${page}`;
+      });
       return App.createChapterDetails({
         id: chapterId,
         mangaId,
-        pages: data.pages ?? []
+        pages
       });
     }
     async getSearchResults(query, metadata) {
