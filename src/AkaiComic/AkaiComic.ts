@@ -16,10 +16,10 @@ const API_BASE = 'https://akaicomic.org/api'
 const DOMAIN = 'https://akaicomic.org'
 
 export const AkaiComicInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.0.3',
     name: 'AkaiComic',
     icon: 'icon.png',
-    author: 'Toi',
+    author: 'nadi 𑣲',
     authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension API pour AkaiComic',
     contentRating: ContentRating.MATURE,

@@ -16,10 +16,10 @@ import * as cheerio from 'cheerio'
 const DOMAIN = 'https://kingofshojo.com'
 
 export const KingOfShojoInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'KingOfShojo',
     icon: 'icon.png',
-    author: 'Toi',
+    author: 'nadi 𑣲',
     authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension pour lire KingOfShojo sur Paperback',
     contentRating: ContentRating.MATURE,

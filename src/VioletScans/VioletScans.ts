@@ -16,10 +16,10 @@ import * as cheerio from 'cheerio'
 const DOMAIN = 'https://violetscans.org'
 
 export const VioletScansInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'VioletScans',
     icon: 'icon.png',
-    author: 'Toi',
+    author: 'nadi 𑣲',
     authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension Paperback pour VioletScans',
     contentRating: ContentRating.MATURE,
@@ -113,12 +113,39 @@ export class VioletScans extends Source {
         const $ = cheerio.load(response.data ?? '')
 
         const pages: string[] = []
-        // Sélecteur pour les images du lecteur
-        const images = $('#readerarea img')
+        
+        // On cible les images à l'intérieur de la zone de lecture
+        const images = $('#readerarea img').toArray()
 
         for (const img of images) {
-            let url = $(img).attr('src')?.trim()
-            if (url) pages.push(url)
+            const $img = $(img)
+            
+            // On vérifie plusieurs attributs car le site utilise le Lazy Loading
+            // 1. data-src (standard) 2. src (si déjà chargé) 3. data-lazy-src (certains thèmes)
+            let url = $img.attr('data-src') || $img.attr('src') || $img.attr('data-lazy-src')
+            
+            url = url?.trim()
+
+            // On ignore les images qui sont des icônes de chargement (souvent en base64 très court)
+            if (url && !url.startsWith('data:image')) {
+                pages.push(url)
+            }
+        }
+
+        // Si le lecteur est en mode "JSON" (certains chapitres sur ce thème), 
+        // on tente de récupérer les images via le script ts_reader
+        if (pages.length === 0) {
+            const scripts = $('script').toArray()
+            for (const script of scripts) {
+                const content = $(script).html()
+                if (content?.includes('ts_reader.run')) {
+                    const match = content.match(/"images"\s*:\s*(\[[^\]]+\])/)
+                    if (match?.[1]) {
+                        const parsedImages = JSON.parse(match[1])
+                        pages.push(...parsedImages)
+                    }
+                }
+            }
         }
 
         return App.createChapterDetails({

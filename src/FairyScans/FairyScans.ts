@@ -16,10 +16,10 @@ import * as cheerio from 'cheerio'
 const DOMAIN = 'https://fairyscans.com'
 
 export const FairyScansInfo: SourceInfo = {
-    version: '1.0.8', // J'ai monté la version pour l'update
+    version: '1.0.9', // J'ai monté la version pour l'update
     name: 'FairyScans',
     icon: 'icon.png',
-    author: 'Toi',
+    author: 'nadi 𑣲',
     authorWebsite: 'https://github.com/ruakaly',
     description: 'Extension Paperback pour FairyScans',
     contentRating: ContentRating.MATURE,
