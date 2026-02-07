@@ -14927,11 +14927,11 @@ var _Sources = (() => {
   // src/FairyScans/FairyScans.ts
   var DOMAIN = "https://fairyscans.com";
   var FairyScansInfo = {
-    version: "1.0.8",
+    version: "1.0.9",
     // J'ai monté la version pour l'update
     name: "FairyScans",
     icon: "icon.png",
-    author: "Toi",
+    author: "nadi \u{118F2}",
     authorWebsite: "https://github.com/ruakaly",
     description: "Extension Paperback pour FairyScans",
     contentRating: import_types2.ContentRating.MATURE,

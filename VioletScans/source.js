@@ -14927,10 +14927,10 @@ var _Sources = (() => {
   // src/VioletScans/VioletScans.ts
   var DOMAIN = "https://violetscans.org";
   var VioletScansInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "VioletScans",
     icon: "icon.png",
-    author: "Toi",
+    author: "nadi \u{118F2}",
     authorWebsite: "https://github.com/ruakaly",
     description: "Extension Paperback pour VioletScans",
     contentRating: import_types2.ContentRating.MATURE,
@@ -15004,10 +15004,27 @@ var _Sources = (() => {
       const response = await this.requestManager.schedule(request, 1);
       const $2 = load(response.data ?? "");
       const pages = [];
-      const images = $2("#readerarea img");
+      const images = $2("#readerarea img").toArray();
       for (const img of images) {
-        let url = $2(img).attr("src")?.trim();
-        if (url) pages.push(url);
+        const $img = $2(img);
+        let url = $img.attr("data-src") || $img.attr("src") || $img.attr("data-lazy-src");
+        url = url?.trim();
+        if (url && !url.startsWith("data:image")) {
+          pages.push(url);
+        }
+      }
+      if (pages.length === 0) {
+        const scripts = $2("script").toArray();
+        for (const script of scripts) {
+          const content = $2(script).html();
+          if (content?.includes("ts_reader.run")) {
+            const match = content.match(/"images"\s*:\s*(\[[^\]]+\])/);
+            if (match?.[1]) {
+              const parsedImages = JSON.parse(match[1]);
+              pages.push(...parsedImages);
+            }
+          }
+        }
       }
       return App.createChapterDetails({
         id: chapterId,

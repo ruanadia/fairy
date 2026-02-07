@@ -731,10 +731,10 @@ var _Sources = (() => {
   var API_BASE = "https://akaicomic.org/api";
   var DOMAIN = "https://akaicomic.org";
   var AkaiComicInfo = {
-    version: "1.0.1",
+    version: "1.0.3",
     name: "AkaiComic",
     icon: "icon.png",
-    author: "Toi",
+    author: "nadi \u{118F2}",
     authorWebsite: "https://github.com/ruakaly",
     description: "Extension API pour AkaiComic",
     contentRating: import_types.ContentRating.MATURE,

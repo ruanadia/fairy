@@ -14927,10 +14927,10 @@ var _Sources = (() => {
   // src/KingOfShojo/KingOfShojo.ts
   var DOMAIN = "https://kingofshojo.com";
   var KingOfShojoInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "KingOfShojo",
     icon: "icon.png",
-    author: "Toi",
+    author: "nadi \u{118F2}",
     authorWebsite: "https://github.com/ruakaly",
     description: "Extension pour lire KingOfShojo sur Paperback",
     contentRating: import_types2.ContentRating.MATURE,
