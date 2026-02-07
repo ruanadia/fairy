@@ -734,7 +734,7 @@ var _Sources = (() => {
     version: "1.0.1",
     name: "AkaiComic",
     icon: "icon.png",
-    author: "nadi \u{118F2}",
+    author: "Toi",
     authorWebsite: "https://github.com/ruakaly",
     description: "Extension API pour AkaiComic",
     contentRating: import_types.ContentRating.MATURE,
