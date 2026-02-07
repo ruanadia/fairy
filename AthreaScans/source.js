@@ -14941,7 +14941,23 @@ var _Sources = (() => {
       super(...arguments);
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 3,
-        requestTimeout: 15e3
+        requestTimeout: 15e3,
+        // Ajoute ce bloc ci-dessous :
+        interceptor: {
+          interceptRequest: async (request) => {
+            request.headers = {
+              ...request.headers ?? {},
+              ...{
+                "referer": `${DOMAIN}/`,
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              }
+            };
+            return request;
+          },
+          interceptResponse: async (response) => {
+            return response;
+          }
+        }
       });
     }
     async getMangaDetails(mangaId) {
@@ -15026,11 +15042,16 @@ var _Sources = (() => {
           }
         }
       }
-      return App.createChapterDetails({
+      const data2 = {
         id: chapterId,
         mangaId,
-        pages
-      });
+        pages,
+        headers: {
+          "referer": `${DOMAIN}/`,
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      };
+      return App.createChapterDetails(data2);
     }
     async getSearchResults(query, metadata) {
       const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query.title ?? "")}`;
